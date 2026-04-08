@@ -1812,33 +1812,6 @@ function renderOPDConsultTab(id, p) {
       </div>
     </div>
     <div class="card mb-3">
-      <div class="card-header"><h3>🩺 Examination</h3></div>
-      <div class="card-body">
-        <div class="form-group">
-          <label class="form-label">Clinical Examination Notes</label>
-          <textarea class="form-control" id="exam-notes" rows="3" placeholder="On examination: BP, pulse, chest, abdomen findings...">${p.examNotes||''}</textarea>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Diagnosis *</label>
-            <input class="form-control" id="exam-diag" value="${p.diagnosis||''}" placeholder="Primary diagnosis">
-          </div>
-          <div class="form-group">
-            <label class="form-label">ICD-10 Code</label>
-            <input class="form-control" id="exam-icd" value="${p.icd||''}" placeholder="e.g. J06.9">
-          </div>
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label class="form-label">Diagnosis Type</label>
-          <div class="flex gap-2">
-            ${['Working','Provisional','Final'].map(t=>`
-              <button id="diag-type-${t}" onclick="setDiagType('${t}')" class="btn btn-sm ${(p.diagType||'Provisional')===t?'btn-primary':'btn-outline'}">${t}</button>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="card mb-3">
       <div class="card-header">
         <h3>💊 Prescription</h3>
         <button class="btn btn-primary btn-sm" onclick="showAddMedModal('${id}')">+ Add Drug</button>
