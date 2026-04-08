@@ -803,7 +803,7 @@ async function tryLoadLiveData() {
   }
 
   if (patientsRes && Array.isArray(patientsRes) && patientsRes.length > 0) {
-    S.patients = patientsRes.map(p => ({
+    const serverPatients = patientsRes.map(p => ({
       id: String(p.id),
       name: p.name,
       age: p.age || '',
@@ -824,7 +824,6 @@ async function tryLoadLiveData() {
       })(),
       status: (() => {
         const s = p.status || 'Active';
-        // If DB says Active but no bed assigned, treat as OPD
         if (s === 'Active' && !p.bed && (p.admission_type||'').toLowerCase().includes('opd')) return 'OPD';
         return s;
       })(),
@@ -835,6 +834,11 @@ async function tryLoadLiveData() {
       pincode: p.pincode || '',
       chronicDiseases: p.chronic_diseases || p.chronicDiseases || '',
     }));
+    // Merge server data with local state — preserve local-only fields
+    S.patients = serverPatients.map(sp => {
+      const local = S.patients.find(x => String(x.id) === String(sp.id));
+      return local ? { ...sp, triageResult: local.triageResult||null, triageVitals: local.triageVitals||null, examNotes: local.examNotes||'', diagType: local.diagType||'Provisional', dischargeTime: local.dischargeTime||'', dischargeCondition: local.dischargeCondition||'' } : sp;
+    });
     // Init empty sub-records for new patients
     S.patients.forEach(p => {
       if (!S.vitals[p.id]) S.vitals[p.id] = [];
