@@ -924,6 +924,8 @@ let socket = null;
 function showApp(live) {
   IS_LIVE = live;
   document.getElementById('login-screen').style.display = 'none';
+  // Keep backend alive — ping every 10 minutes on free tier
+  if (live) setInterval(() => fetch(API_BASE + '/health').catch(()=>{}), 10 * 60 * 1000);
   document.getElementById('app').style.display = 'flex';
   document.getElementById('demo-badge').style.display = live ? 'none' : 'block';
   document.getElementById('live-badge').style.display = live ? 'block' : 'none';
