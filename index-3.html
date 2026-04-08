@@ -1794,8 +1794,8 @@ function renderOPDConsultTab(id, p) {
               <div class="form-group"><label class="form-label">SpO2 (%)</label><input class="form-control" id="opd-spo2" type="number" oninput="runOPDTriage()" onchange="runOPDTriage()" placeholder="98" value="${p.triageVitals?.spo2||''}"></div>
             </div>
             <div class="form-row">
-              <div class="form-group"><label class="form-label">Resp. Rate</label><input class="form-control" id="opd-rr" type="number" oninput="runOPDTriage()" onchange="runOPDTriage()" placeholder="16" value="${p.triageVitals?.rr||''}"></div>
-              <div class="form-group"><label class="form-label">Temperature (°C)</label><input class="form-control" id="opd-temp" type="number" oninput="runOPDTriage()" onchange="runOPDTriage()" placeholder="37.0" step="0.1" value="${p.triageVitals?.temp||''}"></div>
+              <div class="form-group"><label class="form-label">Temperature (°F)</label><input class="form-control" id="opd-temp" type="number" oninput="runOPDTriage()" onchange="runOPDTriage()" placeholder="98.6" step="0.1" value="${p.triageVitals?.temp||''}"></div>
+              <div class="form-group"><label class="form-label">Blood Glucose (mg/dL)</label><input class="form-control" id="opd-glucose" type="number" oninput="runOPDTriage()" onchange="runOPDTriage()" placeholder="100" value="${p.triageVitals?.glucose||''}"></div>
             </div>
           </div>
         </div>
@@ -1870,12 +1870,16 @@ function runOPDTriage() {
   const dbp  = document.getElementById('opd-dbp')?.value || '0';
   const hr   = document.getElementById('opd-hr')?.value || '0';
   const spo2 = document.getElementById('opd-spo2')?.value || '0';
-  const rr   = document.getElementById('opd-rr')?.value || '0';
-  const temp = document.getElementById('opd-temp')?.value || '0';
+  const tempF = parseFloat(document.getElementById('opd-temp')?.value) || 0;
+  const glucose = document.getElementById('opd-glucose')?.value || '0';
   const cc   = document.getElementById('exam-cc')?.value || '';
   const panel = document.getElementById('opd-triage-panel');
   if (!panel) return;
-  const result = triageScore({ age: 30, sbp, dbp, hr, spo2, rr, temp, symptoms: cc });
+
+  // Convert °F to °C for scoring engine
+  const tempC = tempF > 0 ? ((tempF - 32) * 5/9).toFixed(1) : '0';
+
+  const result = triageScore({ age: 30, sbp, dbp, hr, spo2, temp: tempC, glucose, symptoms: cc });
   const sc = result.severity==='CRITICAL'?'#e53e3e':result.severity==='HIGH'?'#dd6b20':result.severity==='MODERATE'?'#d69e2e':'#38a169';
   const em = result.severity==='CRITICAL'?'🔴':result.severity==='HIGH'?'🟠':result.severity==='MODERATE'?'🟡':'🟢';
 
@@ -1992,6 +1996,11 @@ function opdLiveTriageUpdate(id) {
         ${result.flags.length
           ? result.flags.slice(0,4).map(f=>`<div style="font-size:11px;color:#e53e3e;margin-top:3px">⚠ ${f}</div>`).join('')
           : `<div style="font-size:11px;color:#38a169">✓ No critical flags</div>`}
+        ${result.recommendations && result.recommendations.length ? `
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0">
+          <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:4px">Recommended Actions</div>
+          ${result.recommendations.slice(0,3).map(r=>`<div style="font-size:11px;color:#1A2332;margin-top:3px">→ ${r}</div>`).join('')}
+        </div>` : ''}
       </div>
     </div>`;
 }
@@ -7276,91 +7285,170 @@ document.addEventListener('click', e => {
 // AI TRIAGE ENGINE — Hospital Module
 
 function triageScore(v) {
-  // v = { sbp, dbp, hr, rr, spo2, temp, age, symptoms, wbc, ecg }
+  // Research-based triage engine — inspired by NEWS2, MEWS, ESI
+  // v = { sbp, dbp, hr, spo2, temp(°C), age, symptoms, glucose, wbc, ecg }
   let score = 0; let flags = []; let specialty = 'General Medicine';
+  let recommendations = [];
 
-  const sbp = parseFloat(v.sbp)||0, dbp = parseFloat(v.dbp)||0;
-  const hr = parseFloat(v.hr)||0, rr = parseFloat(v.rr)||0;
-  const spo2 = parseFloat(v.spo2)||100, temp = parseFloat(v.temp)||37;
-  const age = parseInt(v.age)||30;
-  const syms = (v.symptoms||'').toLowerCase();
-  const wbc = parseFloat(v.wbc)||0;
-  const ecg = v.ecg||'normal';
+  const sbp  = parseFloat(v.sbp)  || 0;
+  const dbp  = parseFloat(v.dbp)  || 0;
+  const hr   = parseFloat(v.hr)   || 0;
+  const spo2 = parseFloat(v.spo2) || 100;
+  const temp = parseFloat(v.temp) || 37;   // always °C internally
+  const age  = parseInt(v.age)    || 30;
+  const glucose = parseFloat(v.glucose) || 0;
+  const wbc  = parseFloat(v.wbc)  || 0;
+  const ecg  = v.ecg || 'normal';
+  const syms = (v.symptoms || '').toLowerCase();
 
-  // BP
-  if (sbp < 90 || dbp < 60) { score += 30; flags.push('Hypotension (BP < 90/60)'); specialty = 'Emergency'; }
-  else if (sbp > 180 || dbp > 110) { score += 25; flags.push('Hypertensive Crisis'); specialty = 'Cardiology'; }
-  else if (sbp > 140) { score += 10; flags.push('Elevated BP'); }
-
-  // HR
-  if (hr > 130) { score += 25; flags.push('Severe Tachycardia (HR > 130)'); }
-  else if (hr > 100) { score += 12; flags.push('Tachycardia'); }
-  else if (hr < 50) { score += 20; flags.push('Bradycardia (HR < 50)'); specialty = 'Cardiology'; }
-
-  // SpO2
-  if (spo2 < 88) { score += 35; flags.push('Critical Hypoxia (SpO2 < 88%)'); specialty = 'Pulmonology'; }
-  else if (spo2 < 92) { score += 25; flags.push('Hypoxia (SpO2 < 92%)'); specialty = 'Pulmonology'; }
-  else if (spo2 < 95) { score += 10; flags.push('Low SpO2'); }
-
-  // RR
-  if (rr > 30) { score += 20; flags.push('Severe Tachypnea (RR > 30)'); }
-  else if (rr > 20) { score += 8; flags.push('Tachypnea'); }
-  else if (rr < 10) { score += 15; flags.push('Bradypnea'); }
-
-  // Temp
-  if (temp > 39.5) { score += 15; flags.push('High Fever (> 39.5\u00B0C)'); }
-  else if (temp > 38.5) { score += 8; flags.push('Fever'); }
-  else if (temp < 35) { score += 20; flags.push('Hypothermia'); specialty = 'Emergency'; }
-
-  // Age risk
-  if (age > 70) score += 10;
-  else if (age > 60) score += 5;
-
-  // Symptoms
-  if (syms.includes('chest pain') || syms.includes('chest tightness')) {
-    score += 25; flags.push('Chest Pain'); specialty = 'Cardiology';
+  // ── BLOOD PRESSURE (NEWS2 weighted) ─────────────────────────────────────
+  if (sbp > 0) {
+    if (sbp <= 90)                { score += 3; flags.push('Hypotension — SBP ≤90 mmHg'); specialty = 'Emergency'; recommendations.push('IV access, fluid resuscitation'); }
+    else if (sbp <= 100)          { score += 2; flags.push('Low BP — SBP 91–100 mmHg'); }
+    else if (sbp <= 110)          { score += 1; flags.push('Borderline BP'); }
+    else if (sbp >= 220)          { score += 3; flags.push('Hypertensive Emergency — SBP ≥220'); specialty = 'Cardiology'; recommendations.push('Urgent antihypertensive, rule out end-organ damage'); }
+    else if (sbp >= 180)          { score += 2; flags.push('Hypertensive Crisis — SBP ≥180'); specialty = 'Cardiology'; }
+    else if (sbp >= 140)          { score += 1; flags.push('Elevated BP — Stage 2 HTN'); }
   }
-  if (syms.includes('stroke') || syms.includes('facial droop') || syms.includes('slurred')) {
-    score += 35; flags.push('Stroke Symptoms'); specialty = 'Neurology';
-  }
-  if (syms.includes('seizure') || syms.includes('convuls')) {
-    score += 30; flags.push('Seizure'); specialty = 'Neurology';
-  }
-  if (syms.includes('bleed') || syms.includes('haemorrhage') || syms.includes('hemorrhage')) {
-    score += 30; flags.push('Bleeding'); specialty = 'Emergency';
-  }
-  if (syms.includes('breathless') || syms.includes('dyspnea') || syms.includes('shortness of breath')) {
-    score += 15; flags.push('Dyspnea');
-    if (specialty === 'General Medicine') specialty = 'Pulmonology';
-  }
-  if (syms.includes('abdominal pain') || syms.includes('abdomen')) {
-    score += 10; flags.push('Abdominal Pain');
-    if (specialty === 'General Medicine') specialty = 'Gastroenterology';
-  }
-  if (syms.includes('diabetic') || syms.includes('glucose') || syms.includes('sugar')) {
-    score += 8; flags.push('Diabetic Concern');
-    if (specialty === 'General Medicine') specialty = 'Endocrinology';
+  if (dbp > 0) {
+    if (dbp >= 120)               { score += 2; flags.push('Diastolic Crisis — DBP ≥120'); }
+    else if (dbp < 60 && sbp > 0) { score += 1; flags.push('Low Diastolic Pressure'); }
   }
 
-  // WBC
-  if (wbc > 15) { score += 15; flags.push('Elevated WBC — Infection'); if (specialty === 'General Medicine') specialty = 'Infectious Disease'; }
-  else if (wbc > 11) { score += 8; flags.push('Mildly Elevated WBC'); }
-  else if (wbc > 0 && wbc < 3) { score += 20; flags.push('Leukopenia'); specialty = 'Hematology'; }
+  // ── HEART RATE (NEWS2) ───────────────────────────────────────────────────
+  if (hr > 0) {
+    if (hr >= 131)                { score += 3; flags.push('Severe Tachycardia — HR ≥131'); specialty = specialty === 'General Medicine' ? 'Cardiology' : specialty; recommendations.push('12-lead ECG, cardiac monitoring'); }
+    else if (hr >= 111)           { score += 2; flags.push('Tachycardia — HR 111–130'); }
+    else if (hr >= 91)            { score += 1; flags.push('Mild Tachycardia — HR 91–110'); }
+    else if (hr <= 40)            { score += 3; flags.push('Severe Bradycardia — HR ≤40'); specialty = 'Cardiology'; recommendations.push('Atropine ready, pacing consideration'); }
+    else if (hr <= 50)            { score += 1; flags.push('Bradycardia — HR ≤50'); }
+  }
 
-  // ECG
-  if (ecg === 'stemi') { score += 40; flags.push('STEMI on ECG'); specialty = 'Cardiology'; }
-  else if (ecg === 'nstemi') { score += 30; flags.push('NSTEMI / ACS'); specialty = 'Cardiology'; }
-  else if (ecg === 'afib') { score += 20; flags.push('Atrial Fibrillation'); specialty = 'Cardiology'; }
-  else if (ecg === 'vt') { score += 40; flags.push('Ventricular Tachycardia'); specialty = 'Cardiology'; }
+  // ── SpO2 (NEWS2 Scale 1) ─────────────────────────────────────────────────
+  if (spo2 < 100) {
+    if (spo2 <= 91)               { score += 3; flags.push('Critical Hypoxia — SpO2 ≤91%'); specialty = 'Pulmonology'; recommendations.push('High-flow O2, consider NIV/intubation'); }
+    else if (spo2 <= 93)          { score += 2; flags.push('Hypoxia — SpO2 92–93%'); recommendations.push('Supplemental O2, monitor closely'); }
+    else if (spo2 <= 95)          { score += 1; flags.push('Low SpO2 — 94–95%'); }
+  }
 
-  // Severity
+  // ── TEMPERATURE (°C) ─────────────────────────────────────────────────────
+  if (temp > 0) {
+    if (temp >= 39.1)             { score += 2; flags.push('High Fever — ' + temp.toFixed(1) + '°C'); recommendations.push('Blood cultures, antipyretics, sepsis workup'); }
+    else if (temp >= 38.1)        { score += 1; flags.push('Fever — ' + temp.toFixed(1) + '°C'); }
+    else if (temp <= 35.0)        { score += 3; flags.push('Hypothermia — ' + temp.toFixed(1) + '°C'); specialty = 'Emergency'; recommendations.push('Active rewarming, monitor for arrhythmia'); }
+    else if (temp <= 36.0)        { score += 1; flags.push('Low Temperature — ' + temp.toFixed(1) + '°C'); }
+  }
+
+  // ── BLOOD GLUCOSE ────────────────────────────────────────────────────────
+  if (glucose > 0) {
+    if (glucose < 54)             { score += 3; flags.push('Severe Hypoglycemia — <54 mg/dL'); specialty = 'Endocrinology'; recommendations.push('IV Dextrose 50% stat'); }
+    else if (glucose < 70)        { score += 2; flags.push('Hypoglycemia — <70 mg/dL'); recommendations.push('Oral glucose or IV dextrose'); }
+    else if (glucose > 400)       { score += 3; flags.push('Severe Hyperglycemia — >400 mg/dL'); specialty = 'Endocrinology'; recommendations.push('Rule out DKA/HHS, insulin protocol'); }
+    else if (glucose > 250)       { score += 2; flags.push('Hyperglycemia — >250 mg/dL'); }
+    else if (glucose > 180)       { score += 1; flags.push('Elevated Glucose — >180 mg/dL'); }
+  }
+
+  // ── AGE RISK ─────────────────────────────────────────────────────────────
+  if (age >= 80)                  { score += 2; }
+  else if (age >= 65)             { score += 1; }
+  else if (age <= 1)              { score += 3; specialty = 'Pediatrics'; }
+  else if (age <= 5)              { score += 2; specialty = 'Pediatrics'; }
+
+  // ── SYMPTOM NLP ──────────────────────────────────────────────────────────
+  // Cardiac
+  if (/chest pain|chest tightness|chest pressure|angina|crushing chest/.test(syms)) {
+    score += 3; flags.push('Chest Pain — rule out ACS/PE'); specialty = 'Cardiology';
+    recommendations.push('12-lead ECG, troponin, aspirin 325mg');
+  }
+  if (/palpitation|irregular heartbeat|heart racing/.test(syms)) {
+    score += 1; flags.push('Palpitations'); if (specialty === 'General Medicine') specialty = 'Cardiology';
+  }
+  // Neuro
+  if (/stroke|facial droop|arm weakness|slurred speech|sudden confusion|aphasia/.test(syms)) {
+    score += 4; flags.push('Stroke Symptoms — FAST positive'); specialty = 'Neurology';
+    recommendations.push('CT head stat, stroke team activation, thrombolysis window check');
+  }
+  if (/seizure|convuls|fitting|epilep/.test(syms)) {
+    score += 3; flags.push('Seizure'); specialty = 'Neurology';
+    recommendations.push('Airway protection, IV lorazepam if active');
+  }
+  if (/headache|head pain/.test(syms) && (sbp >= 180 || sbp === 0)) {
+    score += 2; flags.push('Headache — possible hypertensive/neurological cause');
+  }
+  if (/worst headache|thunderclap|sudden severe headache/.test(syms)) {
+    score += 4; flags.push('Thunderclap Headache — rule out SAH'); specialty = 'Neurology';
+    recommendations.push('CT head, LP if CT negative');
+  }
+  // Respiratory
+  if (/breathless|dyspnea|shortness of breath|can't breathe|difficulty breathing/.test(syms)) {
+    score += 2; flags.push('Dyspnea'); if (specialty === 'General Medicine') specialty = 'Pulmonology';
+    recommendations.push('CXR, ABG, peak flow');
+  }
+  if (/wheez|asthma|broncho/.test(syms)) {
+    score += 1; flags.push('Wheeze/Asthma'); if (specialty === 'General Medicine') specialty = 'Pulmonology';
+  }
+  if (/haemoptysis|coughing blood|blood in sputum/.test(syms)) {
+    score += 3; flags.push('Haemoptysis'); if (specialty === 'General Medicine') specialty = 'Pulmonology';
+    recommendations.push('CXR, CT chest, bronchoscopy consideration');
+  }
+  // GI
+  if (/vomit blood|haematemesis|coffee ground/.test(syms)) {
+    score += 4; flags.push('Haematemesis — GI bleed'); specialty = 'Gastroenterology';
+    recommendations.push('IV access x2, GI consult, endoscopy');
+  }
+  if (/abdominal pain|abdomen|stomach pain/.test(syms)) {
+    score += 1; flags.push('Abdominal Pain'); if (specialty === 'General Medicine') specialty = 'Gastroenterology';
+  }
+  if (/rigid abdomen|board-like|peritonitis/.test(syms)) {
+    score += 3; flags.push('Peritonism — surgical emergency'); specialty = 'Surgery';
+    recommendations.push('Surgical consult, NPO, IV fluids');
+  }
+  // Sepsis
+  if (/fever|chills|rigors|sepsis|infection/.test(syms) && hr > 90 && (temp > 38 || temp < 36)) {
+    score += 2; flags.push('Sepsis Criteria — SIRS met'); if (specialty === 'General Medicine') specialty = 'Infectious Disease';
+    recommendations.push('Blood cultures x2, broad-spectrum antibiotics, lactate');
+  }
+  // Trauma
+  if (/trauma|accident|fall|injury|fracture|wound/.test(syms)) {
+    score += 2; flags.push('Trauma'); if (specialty === 'General Medicine') specialty = 'Emergency';
+  }
+  if (/bleed|haemorrhage|hemorrhage/.test(syms)) {
+    score += 3; flags.push('Active Bleeding'); specialty = 'Emergency';
+    recommendations.push('IV access, crossmatch, surgical consult');
+  }
+  // Allergy
+  if (/anaphylaxis|allergic reaction|swelling of throat|hives/.test(syms)) {
+    score += 4; flags.push('Anaphylaxis'); specialty = 'Emergency';
+    recommendations.push('Epinephrine 0.3mg IM stat, antihistamine, steroids');
+  }
+  // Psych
+  if (/overdose|poisoning|ingestion|suicide/.test(syms)) {
+    score += 3; flags.push('Overdose/Poisoning'); specialty = 'Emergency';
+    recommendations.push('Toxicology screen, activated charcoal if indicated');
+  }
+
+  // ── WBC ──────────────────────────────────────────────────────────────────
+  if (wbc > 0) {
+    if (wbc > 20)                 { score += 2; flags.push('Leukocytosis — WBC >20k'); if (specialty === 'General Medicine') specialty = 'Infectious Disease'; }
+    else if (wbc > 11)            { score += 1; flags.push('Mild Leukocytosis'); }
+    else if (wbc < 2)             { score += 3; flags.push('Severe Leukopenia — WBC <2k'); specialty = 'Hematology'; recommendations.push('Neutropenic precautions, haematology consult'); }
+    else if (wbc < 4)             { score += 1; flags.push('Leukopenia — WBC <4k'); }
+  }
+
+  // ── ECG ──────────────────────────────────────────────────────────────────
+  if (ecg === 'stemi')            { score += 5; flags.push('STEMI — Activate Cath Lab'); specialty = 'Cardiology'; recommendations.push('Aspirin + P2Y12, heparin, PCI within 90 min'); }
+  else if (ecg === 'nstemi')      { score += 3; flags.push('NSTEMI/ACS'); specialty = 'Cardiology'; recommendations.push('Aspirin, anticoagulation, cardiology consult'); }
+  else if (ecg === 'afib')        { score += 2; flags.push('Atrial Fibrillation'); specialty = 'Cardiology'; recommendations.push('Rate control, anticoagulation assessment'); }
+  else if (ecg === 'vt')          { score += 5; flags.push('Ventricular Tachycardia'); specialty = 'Cardiology'; recommendations.push('Amiodarone, defibrillation if unstable'); }
+
+  // ── SEVERITY (NEWS2-calibrated thresholds) ───────────────────────────────
   let severity, color, icon;
-  if (score >= 60) { severity = 'CRITICAL'; color = 'var(--red)'; icon = '[!]'; }
-  else if (score >= 35) { severity = 'HIGH'; color = 'var(--warn)'; icon = '[!]'; }
-  else if (score >= 15) { severity = 'MODERATE'; color = 'var(--amber)'; icon = '[~]'; }
-  else { severity = 'LOW'; color = 'var(--success)'; icon = '[ok]'; }
+  if      (score >= 12) { severity = 'CRITICAL'; color = '#e53e3e'; icon = '🔴'; }
+  else if (score >= 7)  { severity = 'HIGH';     color = '#dd6b20'; icon = '🟠'; }
+  else if (score >= 3)  { severity = 'MODERATE'; color = '#d69e2e'; icon = '🟡'; }
+  else                  { severity = 'LOW';       color = '#38a169'; icon = '🟢'; }
 
-  return { score, severity, color, icon, flags, specialty };
+  return { score, severity, color, icon, flags, specialty, recommendations };
 }
 
 function assignDoctor(specialty, severity) {
