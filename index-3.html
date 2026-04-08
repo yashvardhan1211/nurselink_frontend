@@ -647,8 +647,8 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
 <script src="config.js"></script>
 <script>
-// API LAYER — connects to nurselink-server.onrender.com
-const API_BASE = 'https://nurselink-server.onrender.com/api';
+// API LAYER — connects to nurselink-backend-8pr3.onrender.com
+const API_BASE = 'https://nurselink-backend-8pr3.onrender.com/api';
 let API_TOKEN = null;
 let IS_LIVE = false;
 
@@ -710,7 +710,7 @@ async function startup() {
   // Check if server is reachable
   const statusEl = document.getElementById('login-server-status');
   try {
-    const res = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(15000) });
     if (res.ok) {
       statusEl.innerHTML = '<span style="color:#2E7D32">● Server online</span>';
     } else {
@@ -943,7 +943,7 @@ function connectSocket() {
   const script = document.createElement('script');
   script.src = 'https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js';
   script.onload = () => {
-    socket = io('https://nurselink-server.onrender.com');
+    socket = io('https://nurselink-backend-8pr3.onrender.com');
     socket.on('vitals:new', v => {
       const pid = String(v.patient_id);
       if (!S.vitals[pid]) S.vitals[pid] = [];
