@@ -5265,8 +5265,25 @@ function renderNotesPage() {
 }
 
 // PHARMACY
-function renderPharmacyPage() {
+async function renderPharmacyPage() {
   const main = document.getElementById('main');
+  main.innerHTML = '<div class="section-title">Pharmacy — Prescriptions</div><div class="text-muted">Loading...</div>';
+
+  // Fetch all active prescriptions from server
+  if (IS_LIVE) {
+    const serverRx = await apiGet('/prescriptions');
+    if (serverRx && Array.isArray(serverRx)) {
+      // Merge into S.prescriptions by patient
+      serverRx.forEach(r => {
+        const pid = String(r.patient_id);
+        if (!S.prescriptions[pid]) S.prescriptions[pid] = [];
+        if (!S.prescriptions[pid].find(x => String(x.id) === String(r.id))) {
+          S.prescriptions[pid].push({ id:String(r.id), drug:r.drug, dose:r.dose, route:r.route, freq:r.frequency, duration:r.duration, instructions:r.instructions, prescribedBy:r.prescribed_by_name||'Doctor', time:new Date(r.created_at).toLocaleString('en-IN'), status:r.status, patientName:r.patient_name, ehrId:r.ehr_id });
+        }
+      });
+    }
+  }
+
   const allRx = [];
   S.patients.forEach(p => {
     (S.prescriptions[p.id]||[]).forEach(rx => {
@@ -5325,8 +5342,24 @@ function pharmAction(rxId, pid, status, drugName) {
 }
 
 // LAB TECH
-function renderLabTechPage() {
+async function renderLabTechPage() {
   const main = document.getElementById('main');
+  main.innerHTML = '<div class="section-title">Lab Orders</div><div class="text-muted">Loading...</div>';
+
+  // Fetch all lab orders from server
+  if (IS_LIVE) {
+    const serverLabs = await apiGet('/labs');
+    if (serverLabs && Array.isArray(serverLabs)) {
+      serverLabs.forEach(l => {
+        const pid = String(l.patient_id);
+        if (!S.labOrders[pid]) S.labOrders[pid] = [];
+        if (!S.labOrders[pid].find(x => String(x.id) === String(l.id))) {
+          S.labOrders[pid].push({ id:String(l.id), test:l.test_name, category:l.category, priority:l.priority, status:l.status, result:l.result||'', orderedBy:l.ordered_by_name||'Doctor', time:new Date(l.created_at).toLocaleString('en-IN'), patientName:l.patient_name, ehrId:l.ehr_id });
+        }
+      });
+    }
+  }
+
   const allOrders = [];
   S.patients.forEach(p => {
     (S.labOrders[p.id]||[]).filter(l=>l.status!=='Result Available').forEach(l => {
