@@ -5005,9 +5005,19 @@ function renderAlertsPage() {
 // DISCHARGE PAGE
 function renderDischargePage() {
   const main = document.getElementById('main');
-  // Only IPD (Active) patients can be discharged — not OPD
-  const readyPts = S.patients.filter(p => S.dischargeReady[p.id] && p.status !== 'OPD');
-  const activePts = S.patients.filter(p => !S.dischargeReady[p.id] && p.status === 'Active');
+
+  // Filter to only this doctor's patients
+  const myId = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : null;
+  const myName = getCurrentStaffName();
+  const isMine = p => {
+    if (myId) return String(p.doctorId) === myId;
+    const doc = S.staff.find(s => s.name === myName && s.role === 'Doctor');
+    return doc ? String(p.doctorId) === String(doc.id) : true;
+  };
+
+  // Only IPD (Active) patients assigned to this doctor
+  const readyPts = S.patients.filter(p => S.dischargeReady[p.id] && p.status !== 'OPD' && isMine(p));
+  const activePts = S.patients.filter(p => !S.dischargeReady[p.id] && p.status === 'Active' && isMine(p));
   main.innerHTML = `
     <div class="section-title">Discharge Management</div>
     <div class="section-sub">Mark IPD patients ready for discharge and generate summary</div>
