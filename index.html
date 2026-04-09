@@ -976,8 +976,24 @@ function connectSocket() {
     socket.on('chat:message', msg => {
       const pid = String(msg.patient_id);
       if (!S.chat[pid]) S.chat[pid] = [];
-      S.chat[pid].push({ from:msg.sender_role, name:msg.sender_name, msg:msg.message, time:new Date(msg.sent_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) });
-      renderAll();
+      // Deduplicate by message id
+      const msgId = String(msg.id || '');
+      if (msgId && S.chat[pid].find(x => String(x.id) === msgId)) return;
+      const entry = { id: msgId, from:msg.sender_role, name:msg.sender_name, msg:msg.message, time:new Date(msg.sent_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) };
+      S.chat[pid].push(entry);
+      // Notify the other role
+      const myRole = S.currentRole;
+      if (msg.sender_role !== myRole) {
+        const p = S.patients.find(x=>x.id===pid);
+        S.notifications.unshift({ id:'N'+Date.now(), role:myRole, title:`Message from ${msg.sender_name}`, body:`Re: ${p?.name} — ${msg.message?.substring(0,50)}`, time:ts(), read:false });
+        renderNotifBadge();
+      }
+      // Only re-render chat tab if currently viewing this patient
+      if (S.activePatientId === pid) {
+        const tabDiv = document.getElementById('tab-content');
+        const p = S.patients.find(x=>x.id===pid);
+        if (tabDiv && p) tabDiv.innerHTML = renderChatTab(pid, p);
+      }
     });
     socket.on('patient:admitted', p => { refreshLiveData(); });
     socket.on('queue:update', () => { refreshLiveData(); });
@@ -3614,16 +3630,24 @@ async function sendChat(pid) {
   const input = document.getElementById(`chat-input-${pid}`);
   const msg = input?.value.trim();
   if (!msg) return;
-  if (!S.chat[pid]) S.chat[pid] = [];
   const role = S.currentRole;
   const name = getCurrentStaffName();
-  S.chat[pid].push({ from:role, name, msg, time:ts() });
   const targetRole = role==='Doctor'?'Nurse':'Doctor';
   const p = S.patients.find(x=>x.id===pid);
-  S.notifications.unshift({ id:'N'+Date.now(), role:targetRole, title:`Message from ${name}`, body:`Re: ${p?.name} — ${msg.substring(0,50)}`, time:ts(), read:false });
   if (input) input.value = '';
-  if (IS_LIVE) await apiPost('/chat/' + pid, { message: msg });
-  save();
+
+  if (IS_LIVE) {
+    // Let socket event handle adding to S.chat to avoid duplicates
+    await apiPost('/chat/' + pid, { message: msg });
+  } else {
+    // Demo mode — add locally
+    if (!S.chat[pid]) S.chat[pid] = [];
+    S.chat[pid].push({ from:role, name, msg, time:ts() });
+    S.notifications.unshift({ id:'N'+Date.now(), role:targetRole, title:`Message from ${name}`, body:`Re: ${p?.name} — ${msg.substring(0,50)}`, time:ts(), read:false });
+    save();
+    const tabDiv = document.getElementById('tab-content');
+    if (tabDiv) tabDiv.innerHTML = renderChatTab(pid, p);
+  }
 }
 
 // PATIENT HISTORY PDF VIEW
