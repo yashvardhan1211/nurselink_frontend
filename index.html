@@ -4122,7 +4122,213 @@ function markNotifRead(id) {
 // OTHER VIEWS
 
 // ADMIT FORM
+function renderAdminTriageForm() {
+  const main = document.getElementById('main');
+  const doctors = S.staff.filter(s => s.role === 'Doctor');
+  const colors = ['#00B4A6','#5C6BC0','#2E7D32','#F57C00','#C62828','#546E7A'];
+
+  main.innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="section-title">🧠 New Patient — AI Triage</div>
+        <div class="section-sub">Enter patient details and vitals — AI will score and recommend a doctor</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+      <div>
+        <div class="card mb-4">
+          <div class="card-header"><h3>Patient Information</h3></div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">Full Name *</label><input class="form-control" id="at-name" placeholder="Patient full name"></div>
+              <div class="form-group"><label class="form-label">Age *</label><input class="form-control" id="at-age" type="number" placeholder="Age" oninput="adminTriageUpdate()"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Sex</label>
+                <select class="form-control" id="at-gender"><option value="M">Male</option><option value="F">Female</option><option value="O">Other</option></select>
+              </div>
+              <div class="form-group"><label class="form-label">Phone</label><input class="form-control" id="at-phone" placeholder="10-digit number"></div>
+            </div>
+            <div class="form-group"><label class="form-label">Chief Complaint *</label><textarea class="form-control" id="at-cc" rows="2" placeholder="Main presenting complaints..." oninput="adminTriageUpdate()"></textarea></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header" style="background:var(--navy);color:white"><h3>🧠 AI Triage — Vitals</h3><span style="font-size:11px;opacity:0.6">Updates score live</span></div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">Systolic BP</label><input class="form-control" id="at-sbp" type="number" placeholder="120" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
+              <div class="form-group"><label class="form-label">Diastolic BP</label><input class="form-control" id="at-dbp" type="number" placeholder="80" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">Heart Rate (bpm)</label><input class="form-control" id="at-hr" type="number" placeholder="72" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
+              <div class="form-group"><label class="form-label">SpO2 (%)</label><input class="form-control" id="at-spo2" type="number" placeholder="98" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">Temperature (°F)</label><input class="form-control" id="at-temp" type="number" placeholder="98.6" step="0.1" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
+              <div class="form-group"><label class="form-label">Blood Glucose (mg/dL)</label><input class="form-control" id="at-glucose" type="number" placeholder="100" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="submitAdminTriage()">✔ Register & Assign</button>
+          <button class="btn btn-outline" onclick="setNav('analytics')">Cancel</button>
+        </div>
+      </div>
+
+      <div style="position:sticky;top:80px;display:flex;flex-direction:column;gap:12px">
+        <!-- AI Triage Score -->
+        <div id="at-triage-panel" style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
+          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+          <div style="padding:16px;text-align:center;color:#94a3b8">
+            <div style="font-size:32px;margin-bottom:8px">🩺</div>
+            <div style="font-size:12px">Enter vitals to see score</div>
+          </div>
+        </div>
+        <!-- Doctor Assignment -->
+        <div style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
+          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">👨‍⚕️ Assign Doctor</div>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px" id="at-doc-list">
+            ${doctors.map((d, i) => {
+              const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
+              const pct = Math.min(100, load * 12);
+              const bg = colors[i % colors.length];
+              return `<div id="at-doc-${d.id}" onclick="selectAdminDoc('${d.id}')" style="border:2px solid #e2e8f0;border-radius:10px;padding:10px;cursor:pointer;background:white">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                  <div style="width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:13px;flex-shrink:0">${d.name.charAt(0)}</div>
+                  <div style="flex:1"><div style="font-weight:700;font-size:12px">${d.name}</div><div style="font-size:10px;color:#64748b">${d.specialty||d.department||'General'}</div></div>
+                  <div id="at-badge-${d.id}" style="display:none;background:#00B4A6;color:white;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px">AI Pick</div>
+                </div>
+                <div style="font-size:10px;color:#64748b;margin-bottom:3px">Patients: <strong>${load}</strong></div>
+                <div style="height:3px;background:#e2e8f0;border-radius:2px"><div style="height:3px;background:${pct>70?'#e53e3e':pct>40?'#dd6b20':'#00B4A6'};border-radius:2px;width:${pct}%"></div></div>
+              </div>`;
+            }).join('')}
+          </div>
+          <input type="hidden" id="at-doc" value="${doctors[0]?.id||''}">
+        </div>
+      </div>
+    </div>`;
+
+  // Auto-select first doctor
+  if (doctors.length) selectAdminDoc(String(doctors[0].id));
+}
+
+function selectAdminDoc(id) {
+  S.staff.filter(s => s.role === 'Doctor').forEach(d => {
+    const card = document.getElementById('at-doc-' + d.id);
+    if (card) {
+      card.style.borderColor = String(d.id) === String(id) ? '#00B4A6' : '#e2e8f0';
+      card.style.background  = String(d.id) === String(id) ? '#E0F7FA' : 'white';
+    }
+  });
+  const inp = document.getElementById('at-doc');
+  if (inp) inp.value = id;
+}
+
+function adminTriageUpdate() {
+  const sbp  = document.getElementById('at-sbp')?.value || '0';
+  const dbp  = document.getElementById('at-dbp')?.value || '0';
+  const hr   = document.getElementById('at-hr')?.value || '0';
+  const spo2 = document.getElementById('at-spo2')?.value || '0';
+  const tempF = parseFloat(document.getElementById('at-temp')?.value) || 0;
+  const glucose = document.getElementById('at-glucose')?.value || '0';
+  const cc   = document.getElementById('at-cc')?.value || '';
+  const age  = document.getElementById('at-age')?.value || '30';
+  const panel = document.getElementById('at-triage-panel');
+  if (!panel) return;
+
+  const hasVitals = parseFloat(sbp)>0 || parseFloat(hr)>0 || parseFloat(spo2)>0;
+  if (!hasVitals) return;
+
+  const tempC = tempF > 0 ? ((tempF - 32) * 5/9).toFixed(1) : '0';
+  const result = triageScore({ age, sbp, dbp, hr, spo2, temp: tempC, glucose, symptoms: cc });
+  const sc = result.severity==='CRITICAL'?'#e53e3e':result.severity==='HIGH'?'#dd6b20':result.severity==='MODERATE'?'#d69e2e':'#38a169';
+  const em = result.severity==='CRITICAL'?'🔴':result.severity==='HIGH'?'🟠':result.severity==='MODERATE'?'🟡':'🟢';
+
+  panel.innerHTML = `
+    <div style="border:2px solid ${sc};border-radius:10px;overflow:hidden">
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+      <div style="padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:20px;font-weight:900;color:${sc}">${em} ${result.severity}</span>
+          <span style="font-family:monospace;font-size:18px;font-weight:700;color:${sc}">${result.score}</span>
+        </div>
+        <div style="font-size:12px;font-weight:700;color:#1A2332;margin-bottom:6px">🏥 ${result.specialty}</div>
+        ${result.flags.slice(0,4).map(f=>`<div style="font-size:11px;color:#e53e3e;margin-top:3px">⚠ ${f}</div>`).join('') || '<div style="font-size:11px;color:#38a169">✓ No critical flags</div>'}
+        ${result.recommendations?.length ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0">${result.recommendations.slice(0,2).map(r=>`<div style="font-size:10px;color:#1A2332;margin-top:2px">→ ${r}</div>`).join('')}</div>` : ''}
+      </div>
+    </div>`;
+
+  // Auto-highlight AI-recommended doctor
+  const rec = assignDoctor(result.specialty, result.severity);
+  S.staff.filter(s=>s.role==='Doctor').forEach(d => {
+    const badge = document.getElementById('at-badge-' + d.id);
+    if (badge) badge.style.display = rec && String(d.id)===String(rec.id) ? 'block' : 'none';
+  });
+  if (rec) selectAdminDoc(String(rec.id));
+}
+
+async function submitAdminTriage() {
+  const name = document.getElementById('at-name')?.value.trim();
+  const age  = document.getElementById('at-age')?.value;
+  const cc   = document.getElementById('at-cc')?.value.trim();
+  const docId = document.getElementById('at-doc')?.value;
+  if (!name || !age) { alert('Name and Age are required.'); return; }
+
+  const pid = 'P' + Date.now();
+  const ehrId = 'EHR-' + Math.floor(10000 + Math.random()*90000);
+  const patient = {
+    id: pid, name, age: parseInt(age),
+    gender: document.getElementById('at-gender').value,
+    phone: document.getElementById('at-phone')?.value.trim() || '',
+    ehrId, diagnosis: '', icd: 'Z00', bed: '',
+    doctorId: docId, nurseId: '',
+    admissionType: 'OPD Consultation',
+    admitTime: now(), status: 'OPD',
+    chiefComplaint: cc || '',
+    allergies: 'None Known', bloodGroup: '',
+    triageResult: null, triageVitals: null,
+  };
+
+  S.patients.unshift(patient);
+  S.vitals[pid] = []; S.prescriptions[pid] = []; S.labOrders[pid] = [];
+  S.consultNotes[pid] = []; S.nursingNotes[pid] = []; S.chat[pid] = [];
+  if (!S.opdQueue) S.opdQueue = [];
+  S.opdQueue.unshift({ pid, name, uhid: ehrId, cc: cc||'', time: ts(), status: 'Waiting' });
+
+  if (IS_LIVE) {
+    const res = await apiPost('/patients', {
+      name, age: parseInt(age),
+      gender: document.getElementById('at-gender').value,
+      phone: document.getElementById('at-phone')?.value.trim() || '',
+      status: 'OPD', admission_type: 'OPD Consultation',
+      chief_complaint: cc || '', doctor_id: docId || null,
+      icd_code: 'Z00', allergies: 'None Known',
+    });
+    if (res) {
+      const dbId = String(res.id);
+      const pt = S.patients.find(x => x.id === pid);
+      if (pt && dbId !== pid) {
+        pt.id = dbId; pt.ehrId = res.ehr_id || pt.ehrId;
+        ['prescriptions','vitals','labOrders','consultNotes','nursingNotes','chat'].forEach(k => {
+          if (S[k][pid]) { S[k][dbId] = S[k][pid]; delete S[k][pid]; }
+        });
+        const q = S.opdQueue.find(x => x.pid === pid);
+        if (q) q.pid = dbId;
+      }
+      showToast(`${name} registered ✓`, 'info');
+    }
+  } else {
+    showToast(`${name} registered`);
+  }
+
+  save();
+  setNav('analytics');
+  renderAll();
+}
+
 function renderAdmitForm() {
+  if (S.currentRole === 'Admin') { renderAdminTriageForm(); return; }
 
   const main = document.getElementById('main');
 
