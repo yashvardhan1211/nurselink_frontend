@@ -6748,9 +6748,27 @@ function renderDoctorDashboard() {
   const opdToday  = myPts.filter(p=>p.status==='OPD');
   const discharged = myPts.filter(p=>p.status==='Discharged');
   const myAlerts  = S.alerts.filter(a => myPts.find(p=>p.id===a.patientId) && !a.acked);
-  // Waiting queue — all OPD patients not yet consulted (including counter-registered)
-  const opdWaiting = (S.opdQueue||[]).filter(q=>q.status==='Waiting'||q.status==='Called')
-    .concat(S.patients.filter(p=>p.status==='OPD' && !p.consulted && !(S.prescriptions[p.id]||[]).length && !(S.consultNotes[p.id]||[]).length && !(S.opdQueue||[]).find(q=>q.pid===p.id)));
+
+  // OPD queue — only patients assigned to THIS doctor
+  const opdWaiting = (S.opdQueue||[])
+    .filter(q => q.status==='Waiting' || q.status==='Called')
+    .filter(q => {
+      const pt = S.patients.find(x => String(x.id) === String(q.pid));
+      if (!pt) return false;
+      if (myId) return String(pt.doctorId) === myId;
+      const doc = S.staff.find(s => s.name === myName && s.role === 'Doctor');
+      return doc && String(pt.doctorId) === String(doc.id);
+    })
+    .concat(
+      // Also include OPD patients assigned to this doctor not yet in queue
+      myPts.filter(p =>
+        p.status==='OPD' &&
+        !p.consulted &&
+        !(S.prescriptions[p.id]||[]).length &&
+        !(S.consultNotes[p.id]||[]).length &&
+        !(S.opdQueue||[]).find(q => q.pid===p.id)
+      )
+    );
 
   let totalLOS = 0, losCount = 0;
   ipdActive.forEach(p => { const d = calcLOS(p.admitTime); if(d){totalLOS+=d;losCount++;} });
