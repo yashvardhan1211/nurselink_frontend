@@ -5293,60 +5293,74 @@ async function renderPharmacyPage() {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="section-title">Pharmacy — Prescriptions</div><div class="text-muted">Loading...</div>';
 
-  // Fetch all active prescriptions from server
+  // Fetch all active prescriptions directly from server
+  let rxByPatient = {}; // { patientName: { name, bed, rxs: [] } }
+
   if (IS_LIVE) {
     const serverRx = await apiGet('/prescriptions');
     if (serverRx && Array.isArray(serverRx)) {
-      // Merge into S.prescriptions by patient
       serverRx.forEach(r => {
         const pid = String(r.patient_id);
+        if (!rxByPatient[pid]) rxByPatient[pid] = { name: r.patient_name||'—', bed: '—', ehrId: r.ehr_id||'—', rxs: [] };
+        rxByPatient[pid].rxs.push({
+          id: String(r.id), drug: r.drug, dose: r.dose, route: r.route,
+          freq: r.frequency, duration: r.duration, instructions: r.instructions,
+          prescribedBy: r.prescribed_by_name||'Doctor',
+          time: new Date(r.created_at).toLocaleString('en-IN'),
+          status: r.status, patientId: pid,
+        });
+        // Also update local state
         if (!S.prescriptions[pid]) S.prescriptions[pid] = [];
-        if (!S.prescriptions[pid].find(x => String(x.id) === String(r.id))) {
-          S.prescriptions[pid].push({ id:String(r.id), drug:r.drug, dose:r.dose, route:r.route, freq:r.frequency, duration:r.duration, instructions:r.instructions, prescribedBy:r.prescribed_by_name||'Doctor', time:new Date(r.created_at).toLocaleString('en-IN'), status:r.status, patientName:r.patient_name, ehrId:r.ehr_id });
-        }
+        if (!S.prescriptions[pid].find(x => String(x.id) === String(r.id)))
+          S.prescriptions[pid].push({ ...rxByPatient[pid].rxs.at(-1) });
+      });
+      // Fill bed from S.patients if available
+      Object.keys(rxByPatient).forEach(pid => {
+        const pt = S.patients.find(x => String(x.id) === pid);
+        if (pt) { rxByPatient[pid].name = pt.name; rxByPatient[pid].bed = pt.bed||'—'; }
       });
     }
+  } else {
+    S.patients.forEach(p => {
+      const rxs = (S.prescriptions[p.id]||[]).filter(r=>r.status==='active');
+      if (rxs.length) rxByPatient[p.id] = { name:p.name, bed:p.bed||'—', ehrId:p.ehrId, rxs };
+    });
   }
 
-  const allRx = [];
-  S.patients.forEach(p => {
-    (S.prescriptions[p.id]||[]).forEach(rx => {
-      allRx.push({ ...rx, patientName:p.name, patientId:p.id });
-    });
-  });
+  const totalActive = Object.values(rxByPatient).reduce((n,g)=>n+g.rxs.filter(r=>r.status==='active').length, 0);
+
   main.innerHTML = `
     <div class="section-title">Pharmacy — Prescriptions</div>
-    <div class="section-sub">${allRx.filter(r=>r.status==='active').length} active prescriptions</div>
-    ${allRx.length===0 ? '<div class="text-muted">No prescriptions received.</div>' : ''}
-    ${S.patients.map(p => {
-      const rxs = (S.prescriptions[p.id]||[]).filter(r=>r.status==='active');
-      if (rxs.length===0) return '';
-      return `
-        <div class="card mb-4">
-          <div class="card-header"><h3>${p.name} <span class="text-muted text-sm">Bed ${p.bed}</span></h3></div>
-          <div class="card-body">
-            ${rxs.map(rx => {
-              const pharmSt = (S.pharmStatus[rx.id] || 'pending');
-              return `<div class="rx-item">
-                <div class="rx-item-header">
-                  <div>
-                    <div class="rx-drug-name">${rx.drug}</div>
-                    <div class="rx-drug-meta">${rx.dose} | ${rx.route} | ${rx.freq}</div>
-                    ${rx.instructions?`<div style="font-size:11px;color:var(--text-muted)">⚠ ${rx.instructions}</div>`:''}
+    <div class="section-sub">${totalActive} active prescriptions</div>
+    ${Object.keys(rxByPatient).length === 0 ? '<div class="text-muted mt-4">No prescriptions received.</div>' :
+      Object.entries(rxByPatient).map(([pid, group]) => {
+        const rxs = group.rxs.filter(r=>r.status==='active');
+        if (!rxs.length) return '';
+        return `
+          <div class="card mb-4">
+            <div class="card-header"><h3>${group.name} <span class="text-muted text-sm">Bed ${group.bed} · ${group.ehrId}</span></h3></div>
+            <div class="card-body">
+              ${rxs.map(rx => {
+                const pharmSt = S.pharmStatus[rx.id] || 'pending';
+                return `<div class="rx-item">
+                  <div class="rx-item-header">
+                    <div>
+                      <div class="rx-drug-name">${rx.drug}</div>
+                      <div class="rx-drug-meta">${rx.dose} | ${rx.route} | ${rx.freq} · ${rx.duration}</div>
+                      ${rx.instructions?`<div style="font-size:11px;color:var(--text-muted)">⚠ ${rx.instructions}</div>`:''}
+                    </div>
+                    <span class="rx-status ${pharmSt==='dispensed'?'dispensed':pharmSt==='oos'?'oos':'pending'}">${pharmSt==='oos'?'OUT OF STOCK':pharmSt.toUpperCase()}</span>
                   </div>
-                  <span class="rx-status ${pharmSt==='dispensed'?'dispensed':pharmSt==='oos'?'oos':'pending'}">${pharmSt==='oos'?'OUT OF STOCK':pharmSt.toUpperCase()}</span>
-                </div>
-                <div class="flex gap-2 mt-2">
-                  <button class="btn btn-success btn-sm" onclick="pharmAction('${rx.id}','${p.id}','dispensed','${rx.drug}')">✔ Dispense</button>
-                  <button class="btn btn-danger btn-sm" onclick="pharmAction('${rx.id}','${p.id}','oos','${rx.drug}')">✗ Out of Stock</button>
-                </div>
-                <div class="text-muted text-sm mt-1">Prescribed by ${rx.prescribedBy} · ${rx.time}</div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    }).join('')}
+                  <div class="flex gap-2 mt-2">
+                    <button class="btn btn-success btn-sm" onclick="pharmAction('${rx.id}','${pid}','dispensed','${rx.drug}')">✔ Dispense</button>
+                    <button class="btn btn-danger btn-sm" onclick="pharmAction('${rx.id}','${pid}','oos','${rx.drug}')">✗ Out of Stock</button>
+                  </div>
+                  <div class="text-muted text-sm mt-1">Prescribed by ${rx.prescribedBy} · ${rx.time}</div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+      }).join('')}
   `;
 }
 
@@ -5370,26 +5384,39 @@ async function renderLabTechPage() {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="section-title">Lab Orders</div><div class="text-muted">Loading...</div>';
 
-  // Fetch all lab orders from server
+  // Fetch all lab orders directly from server
+  let allOrders = [];
   if (IS_LIVE) {
     const serverLabs = await apiGet('/labs');
     if (serverLabs && Array.isArray(serverLabs)) {
-      serverLabs.forEach(l => {
-        const pid = String(l.patient_id);
-        if (!S.labOrders[pid]) S.labOrders[pid] = [];
-        if (!S.labOrders[pid].find(x => String(x.id) === String(l.id))) {
-          S.labOrders[pid].push({ id:String(l.id), test:l.test_name, category:l.category, priority:l.priority, status:l.status, result:l.result||'', orderedBy:l.ordered_by_name||'Doctor', time:new Date(l.created_at).toLocaleString('en-IN'), patientName:l.patient_name, ehrId:l.ehr_id });
-        }
+      allOrders = serverLabs.map(l => ({
+        id: String(l.id),
+        test: l.test_name,
+        category: l.category || '',
+        priority: l.priority || 'Routine',
+        status: l.status || 'Pending',
+        result: l.result || '',
+        orderedBy: l.ordered_by_name || 'Doctor',
+        time: new Date(l.created_at).toLocaleString('en-IN'),
+        patientName: l.patient_name || '—',
+        ehrId: l.ehr_id || '—',
+        patientId: String(l.patient_id),
+      })).filter(l => l.status !== 'Result Available');
+      // Also update local state
+      allOrders.forEach(l => {
+        if (!S.labOrders[l.patientId]) S.labOrders[l.patientId] = [];
+        if (!S.labOrders[l.patientId].find(x => String(x.id) === l.id))
+          S.labOrders[l.patientId].push(l);
       });
     }
+  } else {
+    S.patients.forEach(p => {
+      (S.labOrders[p.id]||[]).filter(l=>l.status!=='Result Available').forEach(l => {
+        allOrders.push({ ...l, patientName:p.name, patientId:p.id, ehrId:p.ehrId });
+      });
+    });
   }
 
-  const allOrders = [];
-  S.patients.forEach(p => {
-    (S.labOrders[p.id]||[]).filter(l=>l.status!=='Result Available').forEach(l => {
-      allOrders.push({ ...l, patientName:p.name, patientId:p.id, ehrId:p.ehrId });
-    });
-  });
   allOrders.sort((a,b) => (a.priority==='STAT'?0:a.priority==='Urgent'?1:2) - (b.priority==='STAT'?0:b.priority==='Urgent'?1:2));
 
   main.innerHTML = `
