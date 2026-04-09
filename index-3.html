@@ -2495,7 +2495,7 @@ function finaliseConsult(id) {
     if (q) {
       q.status = 'Done';
       // Update backend queue status if queue entry has a real UUID id
-      if (IS_LIVE && q.id && /^[0-9a-f-]{36}$/i.test(String(q.id))) {
+      if (IS_LIVE && q.id && !String(q.id).startsWith('Q')) {
         apiPatch('/queue/' + q.id + '/status', { status: 'Done' });
       }
     }
@@ -3231,7 +3231,7 @@ async function submitMed(pid) {
     const rx = { id:'RX'+Date.now()+Math.random(), drug:d.drug, dose:d.dose, route:d.route, freq:d.freq, duration:d.dur, instructions:d.inst, prescribedBy:getCurrentStaffName(), time:now(), status:'active' };
     S.prescriptions[pid].unshift(rx);
     S.notifications.unshift({ id:'N'+Date.now(), role:'Pharmacist', title:'New Prescription', body:`${S.patients.find(p=>p.id===pid)?.name} — ${d.drug} ${d.dose}`, time:ts(), read:false });
-    const isRealPid = /^[0-9a-f-]{36}$/i.test(pid);
+    const isRealPid = pid && !String(pid).startsWith('P');
     if (IS_LIVE && isRealPid) {
       apiPost('/prescriptions/' + pid, { drug:d.drug, dose:d.dose, route:d.route, frequency:d.freq, duration:d.dur, instructions:d.inst });
     }
@@ -3255,7 +3255,7 @@ async function discontinueMed(pid, rxId) {
   S.notifications.unshift({ id:'N'+Date.now(), role:'Nurse', title:"Medication DC'd", body:`${rx.drug} discontinued by ${getCurrentStaffName()}`, time:ts(), read:false });
   showToast(`${rx.drug} discontinued`);
   // Only call API if it's a real UUID (not a locally generated RX... id)
-  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rxId);
+  const isUUID = rxId && !String(rxId).startsWith('RX');
   if (IS_LIVE && isUUID) await apiPatch('/prescriptions/' + rxId + '/discontinue', {});
   save();
   if (S.activePatientId) {
@@ -3444,7 +3444,7 @@ async function submitLabOrder(pid) {
   S.notifications.unshift({ id:'N'+Date.now(), role:'Lab Tech', title:'New Lab Orders', body:`${S.patients.find(p=>p.id===pid)?.name} — ${tests.length} test(s) ordered`, time:ts(), read:false });
   closeModal();
 
-  const isRealPid = /^[0-9a-f-]{36}$/i.test(pid);
+  const isRealPid = pid && !pid.startsWith('P');
   if (IS_LIVE && isRealPid) {
     const payload = tests.map(t => ({ test_name:t.test, category:t.category||'', priority:t.priority }));
     const res = await apiPost('/labs/' + pid, { tests: payload });
@@ -7482,7 +7482,7 @@ function callPatient(pid) {
   const q = S.opdQueue.find(x=>x.pid===pid);
   if (q) {
     q.status = 'Called';
-    if (IS_LIVE && q.id && /^[0-9a-f-]{36}$/i.test(String(q.id))) {
+    if (IS_LIVE && q.id && !String(q.id).startsWith('Q')) {
       apiPatch('/queue/' + q.id + '/status', { status: 'Called' });
     }
     save();
@@ -7495,7 +7495,7 @@ function markQueueDone(pid) {
   const q = S.opdQueue.find(x=>x.pid===pid);
   if (q) {
     q.status = 'Done';
-    if (IS_LIVE && q.id && /^[0-9a-f-]{36}$/i.test(String(q.id))) {
+    if (IS_LIVE && q.id && !String(q.id).startsWith('Q')) {
       apiPatch('/queue/' + q.id + '/status', { status: 'Done' });
     }
     save();
