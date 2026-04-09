@@ -1378,6 +1378,7 @@ function renderSidebar() {
       { icon:'🩺', label:'Patient AI', view:'patientai' },
     ],
     Admin: [
+      { icon:'➕', label:'New Patient', view:'admit' },
       { icon:'👥', label:'Staff', view:'staff' },
       { icon:'🛏', label:'Beds', view:'beds' },
       { icon:'🔗', label:'Integration', view:'integration' },
@@ -1471,8 +1472,8 @@ function renderMain() {
     'patient-discharge': renderPatientDischargePage,
   };
   if (view === 'patientDetail') { renders.patientDetail(); return; }
-  // Admin cannot access patient write views
-  if (S.currentRole === 'Admin' && ['patients','admit','prescriptions','labs','discharge','vitals','mar'].includes(view)) {
+  // Admin cannot access patient write views (except admit/new patient)
+  if (S.currentRole === 'Admin' && ['patients','prescriptions','labs','discharge','vitals','mar'].includes(view)) {
     renders.analytics(); return;
   }
   (renders[view] || renders.patients)();
@@ -4181,10 +4182,11 @@ function renderAdmitForm() {
 
         <div class="section-title" id="admit-form-title">New Patient</div>
 
-        <div class="section-sub" id="admit-form-sub">Enter vitals for AI triage, then assign a doctor</div>
+        <div class="section-sub" id="admit-form-sub">Enter patient details — AI triage updates live</div>
 
       </div>
 
+      ${S.currentRole !== 'Admin' ? `
       <div style="display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:10px;padding:6px 10px;border:1.5px solid var(--border);">
 
         <span id="lbl-opd" style="font-size:13px;font-weight:700;color:var(--teal)">OPD</span>
@@ -4199,7 +4201,7 @@ function renderAdmitForm() {
 
         <span id="lbl-ipd" style="font-size:13px;font-weight:700;color:var(--text-muted)">IPD</span>
 
-      </div>
+      </div>` : ''}
 
     </div>
 
