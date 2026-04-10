@@ -3952,10 +3952,8 @@ async function submitVitals(pid) {
       drain_output:drain, pain_score:pain, notes
     });
     if (res) {
-      // Sync alerts from server response
-      const fresh = await apiGet('/alerts');
-      if (fresh) S.alerts = fresh.map(a=>({ id:String(a.id), patientId:String(a.patient_id), type:a.type, title:a.title, msg:a.message||'', time:a.created_at?new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'', acked:!!a.acknowledged_by }));
       showToast('Vitals saved to server ✓');
+      // Alerts arrive via socket.on('alert:new') — no re-fetch needed
     } else { showToast('Vitals saved locally — server sync failed', 'warn'); }
   } else { showToast('Vitals recorded & pushed to Doctor'); }
   showPayload({ event:'VITALS_RECORDED', patient_ehr_id:p?.ehrId, recorded_by:getCurrentStaffName(), vitals:vital });
@@ -4453,7 +4451,15 @@ function acknowledgeSOS() {
 // ALERT FEED
 function renderAlertFeed() {
   const feed = document.getElementById('alert-feed');
-  const unacked = S.alerts.filter(a=>!a.acked).slice(0,15);
+  const myId = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : null;
+  let unacked = S.alerts.filter(a => !a.acked);
+  if (S.currentRole === 'Doctor' || S.currentRole === 'Nurse') {
+    const myPts = new Set(S.patients
+      .filter(p => myId ? (S.currentRole==='Doctor' ? String(p.doctorId)===myId : String(p.nurseId)===myId) : true)
+      .map(p => p.id));
+    if (myPts.size > 0) unacked = unacked.filter(a => myPts.has(a.patientId) || !a.patientId);
+  }
+  unacked = unacked.slice(0, 15);
   const count = document.getElementById('alert-count');
   if (unacked.length > 0) {
     count.style.display = 'inline';
@@ -4464,12 +4470,13 @@ function renderAlertFeed() {
   feed.innerHTML = unacked.length === 0
     ? '<div class="text-muted text-sm" style="padding:16px;text-align:center">No active alerts</div>'
     : unacked.map(a => {
-        const p = S.patients.find(x=>x.id===a.patientId);
+        const p = S.patients.find(x => x.id === a.patientId);
+        const patientLabel = p ? p.name : (a.patientId ? `Patient #${a.patientId}` : '');
         return `<div class="alert-item ${a.type}">
           <div class="al-title">${a.title}</div>
-          <div class="al-meta">${p?.name || ''} · ${a.time}</div>
+          <div class="al-meta">${patientLabel} · ${a.time}</div>
           <div style="font-size:11px;margin-top:2px">${a.msg}</div>
-          ${S.currentRole==='Doctor' ? `<button class="btn btn-outline btn-sm" style="margin-top:6px;font-size:10px" onclick="ackAlert('${a.id}')">Acknowledge</button>` : ''}
+          ${(S.currentRole==='Doctor'||S.currentRole==='Nurse') ? `<button class="btn btn-outline btn-sm" style="margin-top:6px;font-size:10px" onclick="ackAlert('${a.id}')">Acknowledge</button>` : ''}
         </div>`;
       }).join('');
 }
