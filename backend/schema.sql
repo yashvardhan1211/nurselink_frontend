@@ -127,6 +127,56 @@ CREATE TABLE IF NOT EXISTS patient_care_team (
   UNIQUE(patient_id, staff_id)
 );
 
+-- Bills table
+CREATE TABLE IF NOT EXISTS bills (
+  id SERIAL PRIMARY KEY,
+  patient_id INTEGER REFERENCES patients(id),
+  ehr_id TEXT,
+  patient_name TEXT,
+  items JSONB DEFAULT '[]',
+  gross NUMERIC DEFAULT 0,
+  discount NUMERIC DEFAULT 0,
+  advance NUMERIC DEFAULT 0,
+  insurance_deduction NUMERIC DEFAULT 0,
+  net NUMERIC DEFAULT 0,
+  insurance_company TEXT,
+  insurance_policy TEXT,
+  insurance_claim TEXT,
+  locked BOOLEAN DEFAULT false,
+  generated_by_id INTEGER REFERENCES staff(id),
+  generated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Audit log table
+CREATE TABLE IF NOT EXISTS audit_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES staff(id),
+  user_name TEXT,
+  user_role TEXT,
+  action TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id TEXT,
+  details JSONB,
+  ip_address TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Inventory table
+CREATE TABLE IF NOT EXISTS inventory (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT DEFAULT 'General',
+  unit TEXT DEFAULT 'units',
+  quantity INTEGER DEFAULT 0,
+  min_quantity INTEGER DEFAULT 10,
+  unit_cost NUMERIC DEFAULT 0,
+  supplier TEXT,
+  expiry_date DATE,
+  updated_by_id INTEGER REFERENCES staff(id),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS opd_queue (
   id SERIAL PRIMARY KEY,
   patient_id INTEGER REFERENCES patients(id),

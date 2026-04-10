@@ -682,6 +682,119 @@ io.on('connection', socket => {
   socket.on('chat:message', data => io.emit('chat:message', data));
 });
 
+// ── BILLING ───────────────────────────────────────────────────────────────────
+app.get('/api/bills', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query('SELECT * FROM bills ORDER BY generated_at DESC');
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/bills/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query('SELECT * FROM bills WHERE patient_id=$1 ORDER BY generated_at DESC', [req.params.pid]);
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/bills', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const b = req.body;
+  try {
+    const r = await pool.query(
+      `INSERT INTO bills(patient_id,ehr_id,patient_name,items,gross,discount,advance,insurance_deduction,net,
+        insurance_company,insurance_policy,insurance_claim,locked,generated_by_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+      [b.patient_id,b.ehr_id,b.patient_name,JSON.stringify(b.items||[]),
+       b.gross||0,b.discount||0,b.advance||0,b.insurance_deduction||0,b.net||0,
+       b.insurance_company||null,b.insurance_policy||null,b.insurance_claim||null,
+       b.locked||false,req.user.id]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/bills/:id', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const b = req.body;
+  try {
+    const r = await pool.query(
+      `UPDATE bills SET items=$1,gross=$2,discount=$3,advance=$4,insurance_deduction=$5,net=$6,
+        insurance_company=$7,insurance_policy=$8,insurance_claim=$9,locked=$10,updated_at=NOW()
+       WHERE id=$11 RETURNING *`,
+      [JSON.stringify(b.items||[]),b.gross||0,b.discount||0,b.advance||0,b.insurance_deduction||0,b.net||0,
+       b.insurance_company||null,b.insurance_policy||null,b.insurance_claim||null,b.locked||false,req.params.id]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AUDIT LOG ─────────────────────────────────────────────────────────────────
+app.get('/api/audit', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200');
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Helper to log audit events (called internally)
+async function logAudit(userId, userName, userRole, action, entityType, entityId, details, ip) {
+  if (!pool) return;
+  pool.query(
+    'INSERT INTO audit_log(user_id,user_name,user_role,action,entity_type,entity_id,details,ip_address) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+    [userId, userName, userRole, action, entityType||null, entityId||null, details ? JSON.stringify(details) : null, ip||null]
+  ).catch(() => {});
+}
+
+// ── INVENTORY ─────────────────────────────────────────────────────────────────
+app.get('/api/inventory', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query('SELECT * FROM inventory ORDER BY category, name');
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/inventory', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const b = req.body;
+  try {
+    const r = await pool.query(
+      `INSERT INTO inventory(name,category,unit,quantity,min_quantity,unit_cost,supplier,expiry_date,updated_by_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [b.name,b.category||'General',b.unit||'units',b.quantity||0,b.min_quantity||10,
+       b.unit_cost||0,b.supplier||null,b.expiry_date||null,req.user.id]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/inventory/:id', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const b = req.body;
+  try {
+    const r = await pool.query(
+      `UPDATE inventory SET name=$1,category=$2,unit=$3,quantity=$4,min_quantity=$5,
+        unit_cost=$6,supplier=$7,expiry_date=$8,updated_by_id=$9,updated_at=NOW()
+       WHERE id=$10 RETURNING *`,
+      [b.name,b.category||'General',b.unit||'units',b.quantity||0,b.min_quantity||10,
+       b.unit_cost||0,b.supplier||null,b.expiry_date||null,req.user.id,req.params.id]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/inventory/:id', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    await pool.query('DELETE FROM inventory WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Run DB migrations on startup
 if (pool) {
   pool.query(`
@@ -689,6 +802,37 @@ if (pool) {
     ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_url TEXT;
     ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_name TEXT;
   `).then(() => console.log('DB migration: lab_orders columns ensured'))
+    .catch(e => console.warn('DB migration warning:', e.message));
+
+  // Create new tables if not exists
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS bills (
+      id SERIAL PRIMARY KEY, patient_id INTEGER REFERENCES patients(id),
+      ehr_id TEXT, patient_name TEXT, items JSONB DEFAULT '[]',
+      gross NUMERIC DEFAULT 0, discount NUMERIC DEFAULT 0, advance NUMERIC DEFAULT 0,
+      insurance_deduction NUMERIC DEFAULT 0, net NUMERIC DEFAULT 0,
+      insurance_company TEXT, insurance_policy TEXT, insurance_claim TEXT,
+      locked BOOLEAN DEFAULT false, generated_by_id INTEGER REFERENCES staff(id),
+      generated_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES staff(id),
+      user_name TEXT, user_role TEXT, action TEXT NOT NULL,
+      entity_type TEXT, entity_id TEXT, details JSONB, ip_address TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS inventory (
+      id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT DEFAULT 'General',
+      unit TEXT DEFAULT 'units', quantity INTEGER DEFAULT 0, min_quantity INTEGER DEFAULT 10,
+      unit_cost NUMERIC DEFAULT 0, supplier TEXT, expiry_date DATE,
+      updated_by_id INTEGER REFERENCES staff(id), updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS patient_care_team (
+      id SERIAL PRIMARY KEY, patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+      staff_id INTEGER REFERENCES staff(id) ON DELETE CASCADE, role TEXT NOT NULL,
+      added_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(patient_id, staff_id)
+    );
+  `).then(() => console.log('DB migration: new tables ensured'))
     .catch(e => console.warn('DB migration warning:', e.message));
 }
 
