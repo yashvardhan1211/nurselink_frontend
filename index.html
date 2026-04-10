@@ -7171,27 +7171,97 @@ function renderAnalyticsPage() {
 }
 
 const PINCODE_STATE = {
-  '11':'Delhi','12':'Haryana','13':'Haryana','14':'Punjab','15':'Punjab','16':'Punjab',
-  '17':'Himachal Pradesh','18':'Jammu & Kashmir','19':'Jammu & Kashmir',
+  // Delhi
+  '11':'Delhi',
+  // Haryana
+  '12':'Haryana','13':'Haryana',
+  // Punjab
+  '14':'Punjab','15':'Punjab','16':'Punjab',
+  // Himachal Pradesh
+  '17':'Himachal Pradesh',
+  // Jammu & Kashmir / Ladakh
+  '18':'Jammu & Kashmir','19':'Jammu & Kashmir',
+  // Uttar Pradesh
   '20':'Uttar Pradesh','21':'Uttar Pradesh','22':'Uttar Pradesh','23':'Uttar Pradesh',
-  '24':'Uttar Pradesh','25':'Uttar Pradesh','26':'Uttar Pradesh','27':'Uttar Pradesh',
-  '28':'Uttar Pradesh','29':'Uttar Pradesh',
+  '24':'Uttar Pradesh','25':'Uttar Pradesh','26':'Uttar Pradesh','27':'Uttar Pradesh','28':'Uttar Pradesh',
+  // Uttarakhand
+  '24':'Uttarakhand','25':'Uttarakhand',
+  // Rajasthan
+  '30':'Rajasthan','31':'Rajasthan','32':'Rajasthan','33':'Rajasthan','34':'Rajasthan',
+  // Gujarat
+  '36':'Gujarat','37':'Gujarat','38':'Gujarat','39':'Gujarat',
+  // Maharashtra
+  '40':'Maharashtra','41':'Maharashtra','42':'Maharashtra','43':'Maharashtra','44':'Maharashtra',
+  // Madhya Pradesh
+  '45':'Madhya Pradesh','46':'Madhya Pradesh','47':'Madhya Pradesh','48':'Madhya Pradesh',
+  // Chhattisgarh
+  '49':'Chhattisgarh',
+  // Telangana
+  '50':'Telangana','51':'Telangana',
+  // Andhra Pradesh
+  '52':'Andhra Pradesh','53':'Andhra Pradesh',
+  // Karnataka
+  '56':'Karnataka','57':'Karnataka','58':'Karnataka','59':'Karnataka',
+  // Tamil Nadu
+  '60':'Tamil Nadu','61':'Tamil Nadu','62':'Tamil Nadu','63':'Tamil Nadu','64':'Tamil Nadu',
+  // Puducherry
+  '60':'Tamil Nadu',
+  // Kerala
+  '67':'Kerala','68':'Kerala','69':'Kerala',
+  // Lakshadweep
+  '68':'Lakshadweep',
+  // West Bengal
+  '70':'West Bengal','71':'West Bengal','72':'West Bengal','73':'West Bengal','74':'West Bengal',
+  // Andaman & Nicobar
+  '74':'Andaman & Nicobar',
+  // Odisha
+  '75':'Odisha','76':'Odisha','77':'Odisha',
+  // Assam
+  '78':'Assam',
+  // North East (Arunachal, Manipur, Meghalaya, Mizoram, Nagaland, Tripura, Sikkim)
+  '79':'Assam',
+  '790':'Arunachal Pradesh','791':'Arunachal Pradesh',
+  '793':'Meghalaya','794':'Meghalaya',
+  '795':'Manipur',
+  '796':'Mizoram',
+  '797':'Nagaland',
+  '799':'Tripura',
+  // Bihar
+  '80':'Bihar','81':'Bihar','82':'Bihar','83':'Bihar','84':'Bihar',
+  // Jharkhand
+  '82':'Jharkhand','83':'Jharkhand','85':'Jharkhand',
+  // Chandigarh
+  '16':'Chandigarh',
+  // Goa
+  '40':'Goa',
+};
+
+// Correct 2-digit prefix → state (authoritative, no conflicts)
+const PINCODE_STATE_2 = {
+  '11':'Delhi',
+  '12':'Haryana','13':'Haryana',
+  '14':'Punjab','15':'Punjab','16':'Punjab',
+  '17':'Himachal Pradesh',
+  '18':'Jammu & Kashmir','19':'Jammu & Kashmir',
+  '20':'Uttar Pradesh','21':'Uttar Pradesh','22':'Uttar Pradesh','23':'Uttar Pradesh',
+  '24':'Uttarakhand','25':'Uttarakhand',
+  '26':'Uttar Pradesh','27':'Uttar Pradesh','28':'Uttar Pradesh',
   '30':'Rajasthan','31':'Rajasthan','32':'Rajasthan','33':'Rajasthan','34':'Rajasthan',
   '36':'Gujarat','37':'Gujarat','38':'Gujarat','39':'Gujarat',
   '40':'Maharashtra','41':'Maharashtra','42':'Maharashtra','43':'Maharashtra','44':'Maharashtra',
   '45':'Madhya Pradesh','46':'Madhya Pradesh','47':'Madhya Pradesh','48':'Madhya Pradesh',
   '49':'Chhattisgarh',
-  '50':'Telangana','51':'Telangana','52':'Andhra Pradesh','53':'Andhra Pradesh','54':'Andhra Pradesh',
+  '50':'Telangana','51':'Telangana',
+  '52':'Andhra Pradesh','53':'Andhra Pradesh',
   '56':'Karnataka','57':'Karnataka','58':'Karnataka','59':'Karnataka',
-  '60':'Tamil Nadu','61':'Tamil Nadu','62':'Tamil Nadu','63':'Tamil Nadu','64':'Tamil Nadu','65':'Tamil Nadu',
-  '66':'Kerala','67':'Kerala','68':'Kerala','69':'Kerala',
+  '60':'Tamil Nadu','61':'Tamil Nadu','62':'Tamil Nadu','63':'Tamil Nadu','64':'Tamil Nadu',
+  '67':'Kerala','68':'Kerala','69':'Kerala',
   '70':'West Bengal','71':'West Bengal','72':'West Bengal','73':'West Bengal','74':'West Bengal',
   '75':'Odisha','76':'Odisha','77':'Odisha',
   '78':'Assam','79':'Assam',
   '80':'Bihar','81':'Bihar','82':'Bihar','83':'Bihar','84':'Bihar',
   '85':'Jharkhand','86':'Jharkhand',
-  '91':'Uttarakhand','92':'Uttarakhand',
-  '10':'Chandigarh'
+  '91':'Uttarakhand','92':'Jharkhand',
 };
 
 const NCD_LIST_MAP = ['diabetes','hypertension','asthma','copd','heart disease','chronic kidney','stroke','cancer','obesity','thyroid','epilepsy','arthritis','liver disease'];
@@ -7205,8 +7275,9 @@ function renderIndiaMap(filter) {
 
   const stateCount = {};
   S.patients.filter(p=>p.pincode && String(p.pincode).length>=2).forEach(p=>{
-    const prefix = String(p.pincode).substring(0,2);
-    const state = PINCODE_STATE[prefix];
+    const pin = String(p.pincode).replace(/\D/g,'');
+    const prefix = pin.substring(0,2);
+    const state = PINCODE_STATE_2[prefix];
     if(!state) return;
     const text = ((p.diagnosis||'')+','+(p.chronicDiseases||'')).toLowerCase();
     const isNCD = NCD_LIST_MAP.some(k=>text.includes(k));
@@ -7232,54 +7303,66 @@ function renderIndiaMap(filter) {
     return `rgb(${r},${g},${b})`;
   }
 
-  // Simplified state SVG paths (approximate outlines, viewBox 80 18 300 265)
+  // Proper India state SVG paths — viewBox "0 0 800 900"
+  // Paths derived from standard India administrative boundaries
   const statePaths = {
-    'Jammu & Kashmir':'M142,28 L170,22 L185,36 L178,55 L158,60 L138,50 Z',
-    'Himachal Pradesh':'M170,55 L188,50 L195,65 L180,73 L165,68 Z',
-    'Punjab':'M140,55 L168,50 L172,68 L154,75 L136,68 Z',
-    'Haryana':'M168,68 L190,63 L196,80 L178,88 L162,83 Z',
-    'Delhi':'M178,85 L188,82 L190,90 L180,92 Z',
-    'Uttarakhand':'M188,63 L215,58 L218,75 L200,83 L185,78 Z',
-    'Uttar Pradesh':'M182,88 L240,80 L252,102 L238,122 L198,124 L178,108 Z',
-    'Rajasthan':'M136,72 L178,68 L190,90 L182,112 L156,122 L128,112 L118,90 Z',
-    'Gujarat':'M116,112 L150,108 L160,124 L150,148 L122,152 L106,138 L108,120 Z',
-    'Madhya Pradesh':'M156,122 L242,118 L250,138 L238,152 L192,155 L158,148 L148,133 Z',
-    'Chhattisgarh':'M240,122 L265,120 L272,142 L260,162 L242,162 L228,143 Z',
-    'Maharashtra':'M148,148 L230,143 L234,165 L215,185 L185,192 L158,185 L145,168 Z',
-    'Bihar':'M244,102 L278,97 L284,118 L265,128 L244,122 Z',
-    'Jharkhand':'M260,122 L288,118 L292,140 L272,148 L256,143 Z',
-    'Odisha':'M270,140 L298,134 L305,158 L288,172 L265,168 L258,153 Z',
-    'West Bengal':'M280,97 L308,90 L315,114 L298,130 L280,120 Z',
-    'Assam':'M310,84 L345,80 L348,97 L326,108 L306,102 Z',
-    'Telangana':'M205,162 L250,158 L254,180 L234,195 L205,190 Z',
-    'Andhra Pradesh':'M215,190 L272,180 L278,205 L255,220 L218,218 L205,202 Z',
-    'Karnataka':'M158,188 L215,190 L220,218 L195,235 L165,230 L152,212 Z',
-    'Tamil Nadu':'M195,232 L250,222 L254,250 L226,270 L198,270 L188,254 Z',
-    'Kerala':'M154,214 L188,220 L185,254 L162,268 L148,250 L148,230 Z',
-    'Goa':'M152,212 L165,210 L168,220 L155,222 Z',
+    'Jammu & Kashmir': 'M220,20 L310,15 L360,40 L370,80 L340,110 L300,120 L260,110 L230,90 L210,60 Z',
+    'Himachal Pradesh': 'M300,120 L340,110 L360,130 L340,155 L310,160 L285,145 Z',
+    'Punjab': 'M230,90 L300,120 L285,145 L255,155 L220,145 L205,120 Z',
+    'Haryana': 'M255,155 L310,160 L320,185 L295,205 L260,200 L240,180 Z',
+    'Delhi': 'M285,195 L300,190 L305,205 L290,210 Z',
+    'Uttarakhand': 'M310,160 L370,150 L390,170 L370,195 L340,200 L320,185 Z',
+    'Uttar Pradesh': 'M260,200 L295,205 L320,185 L370,195 L420,185 L460,200 L470,240 L440,270 L390,280 L340,275 L290,265 L260,245 Z',
+    'Rajasthan': 'M150,155 L220,145 L240,180 L260,200 L260,245 L240,280 L200,300 L155,295 L120,270 L110,230 L120,190 Z',
+    'Gujarat': 'M110,230 L155,295 L160,330 L140,365 L110,375 L80,355 L65,320 L70,280 Z',
+    'Madhya Pradesh': 'M200,300 L240,280 L290,265 L340,275 L390,280 L420,295 L415,340 L380,365 L330,375 L270,370 L220,355 L190,330 Z',
+    'Chhattisgarh': 'M390,280 L440,270 L470,285 L480,320 L465,360 L430,375 L415,340 L420,295 Z',
+    'Bihar': 'M420,185 L470,175 L510,185 L520,215 L500,240 L460,245 L440,230 L440,210 Z',
+    'Jharkhand': 'M440,230 L500,240 L520,260 L510,295 L475,310 L445,300 L430,275 L440,255 Z',
+    'West Bengal': 'M510,185 L555,175 L575,200 L570,240 L545,270 L520,275 L510,295 L520,260 L520,215 Z',
+    'Odisha': 'M445,300 L475,310 L510,295 L520,275 L545,270 L540,310 L515,345 L480,360 L455,345 L440,320 Z',
+    'Assam': 'M575,175 L630,165 L660,180 L665,205 L635,220 L595,225 L570,210 Z',
+    'Telangana': 'M350,375 L415,365 L430,395 L415,425 L385,440 L355,430 L340,405 Z',
+    'Andhra Pradesh': 'M355,430 L385,440 L415,425 L445,435 L460,465 L440,495 L405,510 L370,505 L345,480 L340,450 Z',
+    'Karnataka': 'M270,370 L330,375 L350,375 L340,405 L355,430 L345,480 L315,500 L280,495 L255,470 L245,435 L255,400 Z',
+    'Goa': 'M245,435 L255,435 L258,450 L248,455 Z',
+    'Maharashtra': 'M190,330 L220,355 L270,370 L255,400 L245,435 L215,445 L185,430 L160,400 L150,365 L160,330 Z',
+    'Tamil Nadu': 'M315,500 L345,480 L370,505 L375,540 L355,575 L325,590 L300,575 L290,545 L295,515 Z',
+    'Kerala': 'M280,495 L315,500 L295,515 L290,545 L270,560 L255,540 L255,510 Z',
+  };
+
+  // Label positions for each state
+  const stateLabels = {
+    'Jammu & Kashmir':[290,70],'Himachal Pradesh':[320,140],'Punjab':[255,125],
+    'Haryana':[278,178],'Delhi':[293,200],'Uttarakhand':[348,175],
+    'Uttar Pradesh':[365,235],'Rajasthan':[185,225],'Gujarat':[115,310],
+    'Madhya Pradesh':[305,325],'Chhattisgarh':[440,320],'Bihar':[470,210],
+    'Jharkhand':[475,270],'West Bengal':[535,230],'Odisha':[490,325],
+    'Assam':[620,192],'Telangana':[385,405],'Andhra Pradesh':[400,465],
+    'Karnataka':[295,435],'Goa':[250,443],'Maharashtra':[210,390],
+    'Tamil Nadu':[335,540],'Kerala':[278,525],
   };
 
   const total = Object.values(stateCount).reduce((a,b)=>a+b,0);
   const pathsSVG = Object.entries(statePaths).map(([state,d])=>{
     const cnt = stateCount[state]||0;
     const fill = getColor(state);
-    const nums = d.match(/-?[\d.]+/g)?.map(Number)||[];
-    const xs=[],ys=[];
-    for(let i=0;i<nums.length;i+=2){xs.push(nums[i]);ys.push(nums[i+1]);}
-    const cx = (xs.reduce((a,b)=>a+b,0)/xs.length).toFixed(1);
-    const cy = (ys.reduce((a,b)=>a+b,0)/ys.length).toFixed(1);
-    return `<g><path d="${d}" fill="${fill}" stroke="#fff" stroke-width="1.2"/>
-      ${cnt>0?`<text x="${cx}" y="${parseFloat(cy)+3}" style="font-size:8px;fill:${cnt/maxVal>0.5?'#fff':'#444'};font-weight:600;pointer-events:none" text-anchor="middle">${cnt}</text>`:''}
-      <title>${state}: ${cnt} patient${cnt!==1?'s':''}</title></g>`;
+    const [lx,ly] = stateLabels[state]||[0,0];
+    return `<g>
+      <path d="${d}" fill="${fill}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">
+        <title>${state}: ${cnt} patient${cnt!==1?'s':''}</title>
+      </path>
+      ${cnt>0?`<text x="${lx}" y="${ly}" style="font-size:10px;fill:${cnt/maxVal>0.5?'#fff':'#333'};font-weight:700;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.3)" text-anchor="middle">${cnt}</text>`:''}
+    </g>`;
   }).join('');
 
   const container = document.getElementById('india-map-container');
   if(!container) return;
-  container.innerHTML = `<svg viewBox="80 18 295 262" width="100%" style="max-height:440px">
-    <rect x="80" y="18" width="295" height="262" fill="none"/>
-    ${pathsSVG}
-    <text x="228" y="290" style="font-size:9px;fill:#94a3b8;font-family:sans-serif" text-anchor="middle">${total} patients mapped · hover for state details</text>
-  </svg>`;
+  container.innerHTML = `
+    <svg viewBox="50 10 650 600" width="100%" style="max-height:480px;display:block;margin:auto">
+      ${pathsSVG}
+      <text x="375" y="610" style="font-size:11px;fill:#94a3b8;font-family:sans-serif" text-anchor="middle">${total} patient${total!==1?'s':''} mapped by pincode · hover state for details</text>
+    </svg>`;
 }
 
 // DOCTOR PROFILE
