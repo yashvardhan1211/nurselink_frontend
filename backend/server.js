@@ -347,16 +347,38 @@ app.post('/api/labs/:pid', auth, async (req, res) => {
 app.patch('/api/labs/:id/result', auth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No DB' });
   try {
+    // Ensure columns exist (idempotent migration)
+    await pool.query(`
+      ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS result_status TEXT DEFAULT '';
+      ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_url TEXT;
+      ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_name TEXT;
+    `).catch(() => {}); // ignore if already exists
+
     const status = req.body.status || 'Result Available';
     const result = req.body.result !== undefined ? req.body.result : null;
+    const result_status = req.body.result_status || req.body.resultStatus || '';
     const report_url = req.body.report_url || null;
     const report_name = req.body.report_name || null;
+
     const r = await pool.query(
-      'UPDATE lab_orders SET result=$1,status=$2,report_url=$3,report_name=$4 WHERE id=$5 RETURNING *',
-      [result, status, report_url, report_name, req.params.id]
+      `UPDATE lab_orders SET result=$1, status=$2, result_status=$3, report_url=$4, report_name=$5
+       WHERE id=$6 RETURNING *`,
+      [result, status, result_status, report_url, report_name, req.params.id]
     );
-    io.emit('labs:result', { ...r.rows[0] });
-    res.json(r.rows[0]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Lab order not found' });
+
+    // Fetch patient info for the socket emit
+    const labRow = r.rows[0];
+    const ptRow = await pool.query('SELECT name FROM patients WHERE id=$1', [labRow.patient_id]).catch(() => ({ rows: [] }));
+    const patientName = ptRow.rows[0]?.name || '';
+
+    const emitData = {
+      ...labRow,
+      patient_name: patientName,
+      ordered_by_name: req.user.name,
+    };
+    io.emit('labs:result', emitData);
+    res.json(labRow);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -590,5 +612,15 @@ io.on('connection', socket => {
   // Chat via socket (fallback for non-DB mode)
   socket.on('chat:message', data => io.emit('chat:message', data));
 });
+
+// Run DB migrations on startup
+if (pool) {
+  pool.query(`
+    ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS result_status TEXT DEFAULT '';
+    ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_url TEXT;
+    ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_name TEXT;
+  `).then(() => console.log('DB migration: lab_orders columns ensured'))
+    .catch(e => console.warn('DB migration warning:', e.message));
+}
 
 server.listen(PORT, () => console.log(`NurseLink backend running on port ${PORT}`));
