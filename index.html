@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NurseLink IPD — Clinical Coordination, Unified</title>
+<title>Vyasa IPD — Clinical Coordination, Unified</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -493,7 +493,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 <!-- TOPBAR -->
 <div id="topbar">
   <button id="menu-btn" onclick="toggleMobileSidebar()" style="display:none;background:none;border:none;color:white;font-size:22px;cursor:pointer;padding:4px 6px;line-height:1">☰</button>
-  <div class="logo">NurseLink<span> IPD</span></div>
+  <div class="logo">Vyasa<span> IPD</span></div>
   <div id="role-switcher"></div>
   <div id="demo-badge" style="display:none">DEMO</div>
   <div id="live-badge" style="background:#2E7D32;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;display:none">● LIVE</div>
@@ -514,7 +514,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
     <div style="text-align:center;margin-bottom:24px;">
 
-      <div style="font-size:28px;font-weight:800;color:var(--navy);letter-spacing:-1px;">NurseLink<span style="color:var(--teal);font-weight:300"> IPD</span></div>
+      <div style="font-size:28px;font-weight:800;color:var(--navy);letter-spacing:-1px;">Vyasa<span style="color:var(--teal);font-weight:300"> IPD</span></div>
 
       <div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Clinical Coordination System</div>
 
@@ -542,7 +542,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
         <label class="form-label">Email</label>
 
-        <input class="form-control" id="login-email" type="email" placeholder="doctor@nurselink.in" value="admin@nurselink.in">
+        <input class="form-control" id="login-email" type="email" placeholder="doctor@vyasa.in" value="admin@vyasa.in">
 
       </div>
 
@@ -576,7 +576,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
         <strong>Patient Portal</strong> — Access your prescriptions, discharge summary, and AI health assistant.<br>
 
-        <span style="opacity:0.8">Use your registered email: <strong>patient@nurselink.in</strong></span>
+        <span style="opacity:0.8">Use your registered email: <strong>patient@vyasa.in</strong></span>
 
       </div>
 
@@ -584,7 +584,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
         <label class="form-label">Patient Email</label>
 
-        <input class="form-control" id="patient-email" type="email" placeholder="patient@nurselink.in" value="patient@nurselink.in">
+        <input class="form-control" id="patient-email" type="email" placeholder="patient@vyasa.in" value="patient@vyasa.in">
 
       </div>
 
@@ -1468,7 +1468,7 @@ function showPayload(data) {
     <div class="modal-header"><h2>📡 Integration Payload</h2><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <p class="text-muted mb-2">This JSON would be sent to any connected EHR via webhook:</p>
-      <div class="payload-code">${JSON.stringify({...data, integration_version:'v1.0', source_system:'NurseLink IPD', timestamp:new Date().toISOString()}, null, 2)}</div>
+      <div class="payload-code">${JSON.stringify({...data, integration_version:'v1.0', source_system:'Vyasa IPD', timestamp:new Date().toISOString()}, null, 2)}</div>
     </div>
     <div class="modal-footer"><button class="btn btn-outline btn-sm" onclick="closeModal()">Close</button></div>
   </div>`);
@@ -2541,7 +2541,7 @@ function generateRx(id) {
           <div>
             <div style="font-size:20px;font-weight:800;color:var(--navy)">${doc?.name||getCurrentStaffName()}</div>
             <div style="font-size:12px;color:var(--text-muted)">${doc?.dept||'General Medicine'} | Reg. No: ${doc?.empId||'MCI-XXXXX'}</div>
-            <div style="font-size:12px;color:var(--text-muted)">NurseLink Clinic | ${now()}</div>
+            <div style="font-size:12px;color:var(--text-muted)">Vyasa Clinic | ${now()}</div>
           </div>
           <div style="text-align:right">
             <div style="font-size:11px;color:var(--text-muted)">Rx</div>
@@ -2628,7 +2628,7 @@ function shareRxWhatsApp(id) {
   const p = S.patients.find(x=>x.id===id);
   const rxList = (S.prescriptions[id]||[]).filter(r=>r.status==='active');
   const doc = S.staff.find(s=>s.id===p.doctorId) || S.staff.find(s=>s.role==='Doctor');
-  const text = `*Prescription — ${p.name}*\nUHID: ${p.ehrId} | ${p.age}Y/${p.gender==='M'?'M':'F'}\nDate: ${new Date().toLocaleDateString('en-IN')}\nDiagnosis: ${p.diagnosis||'—'}\n\n*Medications:*\n${rxList.map((r,i)=>`${i+1}. ${r.drug} ${r.dose} | ${r.route} | ${r.freq} × ${r.duration}`).join('\n')}\n\n_${doc?.name||'Doctor'}, ${doc?.dept||'NurseLink Clinic'}_`;
+  const text = `*Prescription — ${p.name}*\nUHID: ${p.ehrId} | ${p.age}Y/${p.gender==='M'?'M':'F'}\nDate: ${new Date().toLocaleDateString('en-IN')}\nDiagnosis: ${p.diagnosis||'—'}\n\n*Medications:*\n${rxList.map((r,i)=>`${i+1}. ${r.drug} ${r.dose} | ${r.route} | ${r.freq} × ${r.duration}`).join('\n')}\n\n_${doc?.name||'Doctor'}, ${doc?.dept||'Vyasa Clinic'}_`;
   const phone = p.phone ? p.phone.replace(/\D/g,'') : '';
   const url = `https://wa.me/${phone ? '91'+phone : ''}?text=${encodeURIComponent(text)}`;
   window.open(url, '_blank');
@@ -2689,7 +2689,7 @@ function showOPDRxPDF(pid) {
             <div>
               <div style="font-size:18px;font-weight:800;color:#0A1628">${doc?.name||'Doctor'}</div>
               <div style="font-size:11px;color:#64748B">${doc?.dept||'General Medicine'} | Reg: ${doc?.empId||'—'}</div>
-              <div style="font-size:11px;color:#64748B">NurseLink Clinic | ${now()}</div>
+              <div style="font-size:11px;color:#64748B">Vyasa Clinic | ${now()}</div>
             </div>
             <div style="font-size:28px;font-weight:900;color:#00B4A6">℞</div>
           </div>
@@ -5553,7 +5553,7 @@ function showDischargeSummary(pid) {
         <div style="flex:2; border-left:1px solid var(--border); padding-left:20px">
           <div style="text-align:center; margin-bottom:16px">
             <div style="font-size:16px;font-weight:700">DISCHARGE SUMMARY</div>
-            <div class="text-muted text-sm">NurseLink IPD · ${now()}</div>
+            <div class="text-muted text-sm">Vyasa IPD · ${now()}</div>
           </div>
           <div id="ds-demographics" class="discharge-section">
             <div class="discharge-section-header">Patient Demographics</div>
@@ -5837,7 +5837,7 @@ function showDispensePrint(pid, rxId) {
 
         <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0A1628;padding-bottom:12px;margin-bottom:14px">
           <div>
-            <div style="font-size:16px;font-weight:800;color:#0A1628">NurseLink Pharmacy</div>
+            <div style="font-size:16px;font-weight:800;color:#0A1628">Vyasa Pharmacy</div>
             <div style="font-size:11px;color:#64748b">Dispensed: ${now()}</div>
           </div>
           <div style="font-size:22px;font-weight:900;color:#00B4A6">℞</div>
@@ -6661,7 +6661,7 @@ function showAddStaffModal() {
         <div class="form-group"><label class="form-label">Employee ID</label><input class="form-control" id="sf-emp" placeholder="e.g. D-003"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Email *</label><input class="form-control" id="sf-email" placeholder="staff@nurselink.in" type="email"></div>
+        <div class="form-group"><label class="form-label">Email *</label><input class="form-control" id="sf-email" placeholder="staff@vyasa.in" type="email"></div>
         <div class="form-group"><label class="form-label">Password *</label><input class="form-control" id="sf-pass" placeholder="Set login password" type="password"></div>
       </div>
     </div>
@@ -6704,8 +6704,8 @@ async function submitAddStaff() {
 }
 
 function showShareStaffModal(name, role, email, password) {
-  const url = 'https://nurselink-frontend.vercel.app';
-  const msg = `Hi ${name},\n\nYou have been added to NurseLink IPD as *${role}*.\n\n🔗 Login: ${url}\n📧 Email: ${email}\n🔑 Password: ${password}\n\nPlease login and change your password after first sign-in.`;
+  const url = 'https://vyasa-frontend.vercel.app';
+  const msg = `Hi ${name},\n\nYou have been added to Vyasa IPD as *${role}*.\n\n🔗 Login: ${url}\n📧 Email: ${email}\n🔑 Password: ${password}\n\nPlease login and change your password after first sign-in.`;
 
   showModal(`<div class="modal" style="max-width:480px">
     <div class="modal-header"><h2>✅ Staff Added — Share Credentials</h2><button class="modal-close" onclick="closeModal()">×</button></div>
@@ -9887,7 +9887,7 @@ function switchLoginTab(tab) {
 }
 
 function patientLogin() {
-  const email = document.getElementById('patient-email').value.trim() || 'patient@nurselink.in';
+  const email = document.getElementById('patient-email').value.trim() || 'patient@vyasa.in';
   // Store patient identity
   window._patientUser = {
     name: email.split('@')[0].replace(/\./g,' ').replace(/\b\w/g,c=>c.toUpperCase()),

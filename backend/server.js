@@ -973,4 +973,4 @@ if (pool) {
     .catch(e => console.warn('DB migration warning:', e.message));
 }
 
-server.listen(PORT, () => console.log(`NurseLink backend running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Vyasa backend running on port ${PORT}`));
