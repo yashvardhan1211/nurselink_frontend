@@ -1937,12 +1937,14 @@ function runOPDTriage() {
         ${result.flags.length
           ? result.flags.slice(0,4).map(f=>`<div style="font-size:11px;color:#e53e3e;margin-top:3px">⚠ ${f}</div>`).join('')
           : `<div style="font-size:11px;color:#38a169">✓ No critical flags</div>`}
+        ${result.recommendations?.length ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0">${result.recommendations.slice(0,2).map(r=>`<div style="font-size:10px;color:#1A2332;margin-top:2px">→ ${r}</div>`).join('')}</div>` : ''}
       </div>
     </div>
+    ${S.currentRole !== 'Doctor' ? `
     <div style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
       <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">👨‍⚕️ Assign Doctor</div>
       <div style="padding:12px">${docCards}</div>
-    </div>`;
+    </div>` : ''}`;
 }
 
 function opdLiveTriageUpdate(id) {
@@ -2699,7 +2701,6 @@ function renderOverviewTab(id, p) {
         <button class="btn btn-primary" onclick="showDoctorOrderModal('${id}')">📋 Consult + Prescribe + Investigate</button>
         <button class="btn btn-primary" onclick="showRecordVitalsModal('${id}')">📊 Record Vitals</button>
         <button class="btn btn-outline" onclick="setTab('${id}','chat')">💬 Chat with Nurse</button>
-        <button class="btn btn-outline" onclick="showAssignDoctorModal('${id}')">👨‍⚕️ Assign Doctor</button>
         <button class="btn btn-outline" style="border-color:var(--teal);color:var(--teal)" onclick="showAISummary('${id}')">🤖 AI Summary</button>
       </div>
     </div>` : ''}
