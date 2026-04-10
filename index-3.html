@@ -1894,14 +1894,11 @@ function runOPDTriage() {
   const panel = document.getElementById('opd-triage-panel');
   if (!panel) return;
 
-  // Convert °F to °C for scoring engine
   const tempC = tempF > 0 ? ((tempF - 32) * 5/9).toFixed(1) : '0';
-
   const result = triageScore({ age: 30, sbp, dbp, hr, spo2, temp: tempC, glucose, symptoms: cc });
   const sc = result.severity==='CRITICAL'?'#e53e3e':result.severity==='HIGH'?'#dd6b20':result.severity==='MODERATE'?'#d69e2e':'#38a169';
   const em = result.severity==='CRITICAL'?'🔴':result.severity==='HIGH'?'🟠':result.severity==='MODERATE'?'🟡':'🟢';
 
-  // Build doctor cards sorted by specialty match
   const doctors = S.staff.filter(s => s.role === 'Doctor');
   const recommended = assignDoctor(result.specialty, result.severity);
   const currentPatient = S.patients.find(x => String(x.id) === String(S.activePatientId));
@@ -1941,11 +1938,140 @@ function runOPDTriage() {
         ${result.recommendations?.length ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0">${result.recommendations.slice(0,2).map(r=>`<div style="font-size:10px;color:#1A2332;margin-top:2px">→ ${r}</div>`).join('')}</div>` : ''}
       </div>
     </div>
+    <div id="opd-groq-insight" style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:12px">
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+      <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">
+        <div style="font-size:20px;margin-bottom:6px">⏳</div>Analysing chief complaint...
+      </div>
+    </div>
     ${S.currentRole !== 'Doctor' ? `
     <div style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
       <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">👨‍⚕️ Assign Doctor</div>
       <div style="padding:12px">${docCards}</div>
     </div>` : ''}`;
+
+  // Call Groq AI for clinical insight if chief complaint is present
+  if (cc.trim()) {
+    runGroqTriageInsight(cc, sbp, dbp, hr, spo2, tempF, glucose, result);
+  } else {
+    const insightEl = document.getElementById('opd-groq-insight');
+    if (insightEl) insightEl.style.display = 'none';
+  }
+}
+
+async function runGroqTriageInsight(cc, sbp, dbp, hr, spo2, tempF, glucose, triageResult) {
+  const insightEl = document.getElementById('opd-groq-insight');
+  if (!insightEl) return;
+
+  const doctorList = S.staff.filter(s => s.role === 'Doctor')
+    .map(d => `${d.name} (${d.specialty||d.dept||'General Medicine'})`)
+    .join(', ');
+
+  const prompt = `You are a clinical triage AI assistant in a hospital. A patient has presented with the following:
+
+Chief Complaint: ${cc}
+Vitals: BP ${sbp}/${dbp} mmHg, HR ${hr} bpm, SpO2 ${spo2}%, Temp ${tempF}°F, Blood Glucose ${glucose} mg/dL
+Rule-based triage score: ${triageResult.severity} (score: ${triageResult.score})
+Flags: ${triageResult.flags.join(', ') || 'None'}
+
+Available doctors: ${doctorList}
+
+Respond in exactly this JSON format (no markdown, no extra text):
+{
+  "clinical_summary": "2-3 sentence clinical interpretation of the chief complaint and vitals",
+  "likely_diagnosis": "Most likely diagnosis or differential (1-2 conditions)",
+  "recommended_doctor": "Name of the most appropriate doctor from the list above",
+  "reason": "One sentence why this doctor is best for this case",
+  "urgency": "Immediate / Within 1 hour / Within 4 hours / Routine",
+  "key_action": "Single most important immediate action"
+}`;
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 400
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.choices?.[0]?.message?.content || '';
+
+    // Parse JSON response
+    let parsed;
+    try { parsed = JSON.parse(text.trim()); }
+    catch { parsed = null; }
+
+    if (!insightEl) return;
+
+    if (parsed) {
+      const urgencyColor = parsed.urgency==='Immediate'?'#e53e3e':parsed.urgency==='Within 1 hour'?'#dd6b20':parsed.urgency==='Within 4 hours'?'#d69e2e':'#38a169';
+
+      // Auto-assign the Groq-recommended doctor
+      const recDoc = S.staff.find(s => s.role==='Doctor' && s.name === parsed.recommended_doctor);
+      if (recDoc) {
+        // Highlight in doctor cards
+        S.staff.filter(s=>s.role==='Doctor').forEach(d => {
+          const card = document.querySelector(`[onclick="opdAssignDoctor('${d.id}')"]`);
+          if (card) {
+            const badge = card.querySelector('span[style*="border-radius:10px"]');
+            if (badge) badge.remove();
+          }
+        });
+        const recCard = document.querySelector(`[onclick="opdAssignDoctor('${recDoc.id}')"]`);
+        if (recCard) {
+          recCard.style.borderColor = '#7C3AED';
+          recCard.style.background = '#F5F3FF';
+          const nameDiv = recCard.querySelector('div[style*="font-weight:700"]');
+          if (nameDiv && !recCard.querySelector('.groq-badge')) {
+            const badge = document.createElement('span');
+            badge.className = 'groq-badge';
+            badge.style.cssText = 'background:#7C3AED;color:white;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px';
+            badge.textContent = '🤖 Groq Pick';
+            recCard.querySelector('div[style*="flex:1"]')?.after(badge);
+          }
+        }
+      }
+
+      insightEl.innerHTML = `
+        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+        <div style="padding:14px">
+          <div style="font-size:12px;line-height:1.6;color:#1A2332;margin-bottom:10px">${parsed.clinical_summary}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="background:#F0F4F8;border-radius:6px;padding:8px">
+              <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Likely Diagnosis</div>
+              <div style="font-size:12px;font-weight:600;color:#1A2332">${parsed.likely_diagnosis}</div>
+            </div>
+            <div style="background:${urgencyColor}15;border-radius:6px;padding:8px;border-left:3px solid ${urgencyColor}">
+              <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Urgency</div>
+              <div style="font-size:12px;font-weight:700;color:${urgencyColor}">${parsed.urgency}</div>
+            </div>
+          </div>
+          <div style="background:#EDE9FE;border-radius:6px;padding:8px;margin-bottom:8px">
+            <div style="font-size:10px;font-weight:700;color:#7C3AED;text-transform:uppercase;margin-bottom:3px">🤖 Recommended Doctor</div>
+            <div style="font-size:12px;font-weight:700;color:#1A2332">${parsed.recommended_doctor}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px">${parsed.reason}</div>
+          </div>
+          <div style="background:#FFF7ED;border-radius:6px;padding:8px;border-left:3px solid #dd6b20">
+            <div style="font-size:10px;font-weight:700;color:#dd6b20;text-transform:uppercase;margin-bottom:3px">Key Action</div>
+            <div style="font-size:12px;color:#1A2332">${parsed.key_action}</div>
+          </div>
+        </div>`;
+    } else {
+      // Fallback: show raw text
+      insightEl.innerHTML = `
+        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+        <div style="padding:14px;font-size:12px;line-height:1.6;color:#1A2332">${text.substring(0,400)}</div>`;
+    }
+  } catch(e) {
+    if (insightEl) insightEl.innerHTML = `
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+      <div style="padding:14px;font-size:12px;color:#94a3b8">AI insight unavailable — ${e.message}</div>`;
+  }
 }
 
 function opdLiveTriageUpdate(id) {
