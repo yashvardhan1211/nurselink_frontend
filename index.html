@@ -6038,7 +6038,7 @@ function processLabReportFile(file) {
 
 async function submitLabResult(pid, labId, testName, patientName) {
   const val = document.getElementById('lr-val').value.trim();
-  const status = document.getElementById('lr-status').value;
+  const resultStatus = document.getElementById('lr-status').value;
   const ref = document.getElementById('lr-ref').value.trim();
   if (!val) { alert('Result value required.'); return; }
 
@@ -6048,22 +6048,29 @@ async function submitLabResult(pid, labId, testName, patientName) {
   window._labReportData = null;
   window._labReportName = null;
 
-  // Update local state
-  if (S.labOrders[pid]) {
-    const lab = S.labOrders[pid].find(l => String(l.id) === String(labId));
-    if (lab) { lab.status = 'Result Available'; lab.result = resultText; lab.resultStatus = status; lab.reportUrl = reportUrl; lab.reportName = reportName; }
-  }
+  // Update local state immediately
+  if (!S.labOrders[pid]) S.labOrders[pid] = [];
+  const lab = S.labOrders[pid].find(l => String(l.id) === String(labId));
+  if (lab) { lab.status = 'Result Available'; lab.result = resultText; lab.resultStatus = resultStatus; lab.reportUrl = reportUrl; lab.reportName = reportName; }
 
   // Notify doctor
-  S.notifications.unshift({ id:'N'+Date.now(), role:'Doctor', title:`Lab Result: ${testName}`, body:`${patientName} — ${status}: ${val.substring(0,60)}`, time:ts(), read:false });
-  if (status === 'Critical') {
+  S.notifications.unshift({ id:'N'+Date.now(), role:'Doctor', title:`Lab Result: ${testName}`, body:`${patientName} — ${resultStatus}: ${val.substring(0,60)}`, time:ts(), read:false });
+  if (resultStatus === 'Critical') {
     S.alerts.unshift({ id:'A'+Date.now(), patientId:pid, type:'critical', title:'CRITICAL LAB RESULT', msg:`${testName}: ${val}`, time:ts(), acked:false });
     showToast('CRITICAL RESULT alerted to Doctor', 'error');
+    renderAlertFeed();
   }
 
-  // Sync to server
+  // Sync to server — include result_status
   if (IS_LIVE) {
-    await apiPatch('/labs/' + labId + '/result', { result: resultText, status: 'Result Available', report_url: reportUrl, report_name: reportName });
+    const res = await apiPatch('/labs/' + labId + '/result', {
+      result: resultText,
+      status: 'Result Available',
+      result_status: resultStatus,
+      report_url: reportUrl,
+      report_name: reportName,
+    });
+    if (!res) showToast('Server sync failed — result saved locally', 'warn');
   }
 
   closeModal();
