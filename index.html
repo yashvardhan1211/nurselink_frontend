@@ -7291,8 +7291,18 @@ function renderIndiaMap(filter) {
   const el = document.getElementById('map-legend-max');
   if(el) el.textContent = maxVal;
 
-  function getColor(state) {
-    const v = stateCount[state]||0;
+  const total = Object.values(stateCount).reduce((a,b)=>a+b,0);
+  const container = document.getElementById('india-map-container');
+  if(!container) return;
+
+  // Set fixed height for Leaflet container
+  container.style.height = '460px';
+  container.style.borderRadius = '8px';
+  container.style.overflow = 'hidden';
+  container.innerHTML = `<div id="india-leaflet-map" style="width:100%;height:100%"></div>`;
+
+  function getColor(stateName) {
+    const v = stateCount[stateName]||0;
     if(v===0) return '#E8EDF2';
     const t = v/maxVal;
     if(filter==='ncd') {
@@ -7303,66 +7313,127 @@ function renderIndiaMap(filter) {
     return `rgb(${r},${g},${b})`;
   }
 
-  // Proper India state SVG paths — viewBox "0 0 800 900"
-  // Paths derived from standard India administrative boundaries
-  const statePaths = {
-    'Jammu & Kashmir': 'M220,20 L310,15 L360,40 L370,80 L340,110 L300,120 L260,110 L230,90 L210,60 Z',
-    'Himachal Pradesh': 'M300,120 L340,110 L360,130 L340,155 L310,160 L285,145 Z',
-    'Punjab': 'M230,90 L300,120 L285,145 L255,155 L220,145 L205,120 Z',
-    'Haryana': 'M255,155 L310,160 L320,185 L295,205 L260,200 L240,180 Z',
-    'Delhi': 'M285,195 L300,190 L305,205 L290,210 Z',
-    'Uttarakhand': 'M310,160 L370,150 L390,170 L370,195 L340,200 L320,185 Z',
-    'Uttar Pradesh': 'M260,200 L295,205 L320,185 L370,195 L420,185 L460,200 L470,240 L440,270 L390,280 L340,275 L290,265 L260,245 Z',
-    'Rajasthan': 'M150,155 L220,145 L240,180 L260,200 L260,245 L240,280 L200,300 L155,295 L120,270 L110,230 L120,190 Z',
-    'Gujarat': 'M110,230 L155,295 L160,330 L140,365 L110,375 L80,355 L65,320 L70,280 Z',
-    'Madhya Pradesh': 'M200,300 L240,280 L290,265 L340,275 L390,280 L420,295 L415,340 L380,365 L330,375 L270,370 L220,355 L190,330 Z',
-    'Chhattisgarh': 'M390,280 L440,270 L470,285 L480,320 L465,360 L430,375 L415,340 L420,295 Z',
-    'Bihar': 'M420,185 L470,175 L510,185 L520,215 L500,240 L460,245 L440,230 L440,210 Z',
-    'Jharkhand': 'M440,230 L500,240 L520,260 L510,295 L475,310 L445,300 L430,275 L440,255 Z',
-    'West Bengal': 'M510,185 L555,175 L575,200 L570,240 L545,270 L520,275 L510,295 L520,260 L520,215 Z',
-    'Odisha': 'M445,300 L475,310 L510,295 L520,275 L545,270 L540,310 L515,345 L480,360 L455,345 L440,320 Z',
-    'Assam': 'M575,175 L630,165 L660,180 L665,205 L635,220 L595,225 L570,210 Z',
-    'Telangana': 'M350,375 L415,365 L430,395 L415,425 L385,440 L355,430 L340,405 Z',
-    'Andhra Pradesh': 'M355,430 L385,440 L415,425 L445,435 L460,465 L440,495 L405,510 L370,505 L345,480 L340,450 Z',
-    'Karnataka': 'M270,370 L330,375 L350,375 L340,405 L355,430 L345,480 L315,500 L280,495 L255,470 L245,435 L255,400 Z',
-    'Goa': 'M245,435 L255,435 L258,450 L248,455 Z',
-    'Maharashtra': 'M190,330 L220,355 L270,370 L255,400 L245,435 L215,445 L185,430 L160,400 L150,365 L160,330 Z',
-    'Tamil Nadu': 'M315,500 L345,480 L370,505 L375,540 L355,575 L325,590 L300,575 L290,545 L295,515 Z',
-    'Kerala': 'M280,495 L315,500 L295,515 L290,545 L270,560 L255,540 L255,510 Z',
+  // GeoJSON state name → our PINCODE_STATE_2 name mapping
+  const GEO_NAME_MAP = {
+    'Andaman & Nicobar Island':'Andaman & Nicobar','Andhra Pradesh':'Andhra Pradesh',
+    'Arunanchal Pradesh':'Arunachal Pradesh','Assam':'Assam','Bihar':'Bihar',
+    'Chandigarh':'Chandigarh','Chhattisgarh':'Chhattisgarh',
+    'Dadra and Nagar Haveli':'Dadra & Nagar Haveli','Daman & Diu':'Daman & Diu',
+    'Delhi':'Delhi','Goa':'Goa','Gujarat':'Gujarat','Haryana':'Haryana',
+    'Himachal Pradesh':'Himachal Pradesh','Jammu & Kashmir':'Jammu & Kashmir',
+    'Jharkhand':'Jharkhand','Karnataka':'Karnataka','Kerala':'Kerala',
+    'Lakshadweep':'Lakshadweep','Madhya Pradesh':'Madhya Pradesh',
+    'Maharashtra':'Maharashtra','Manipur':'Manipur','Meghalaya':'Meghalaya',
+    'Mizoram':'Mizoram','Nagaland':'Nagaland','Odisha':'Odisha',
+    'Puducherry':'Puducherry','Punjab':'Punjab','Rajasthan':'Rajasthan',
+    'Sikkim':'Sikkim','Tamil Nadu':'Tamil Nadu','Telangana':'Telangana',
+    'Tripura':'Tripura','Uttar Pradesh':'Uttar Pradesh','Uttarakhand':'Uttarakhand',
+    'West Bengal':'West Bengal',
   };
 
-  // Label positions for each state
-  const stateLabels = {
-    'Jammu & Kashmir':[290,70],'Himachal Pradesh':[320,140],'Punjab':[255,125],
-    'Haryana':[278,178],'Delhi':[293,200],'Uttarakhand':[348,175],
-    'Uttar Pradesh':[365,235],'Rajasthan':[185,225],'Gujarat':[115,310],
-    'Madhya Pradesh':[305,325],'Chhattisgarh':[440,320],'Bihar':[470,210],
-    'Jharkhand':[475,270],'West Bengal':[535,230],'Odisha':[490,325],
-    'Assam':[620,192],'Telangana':[385,405],'Andhra Pradesh':[400,465],
-    'Karnataka':[295,435],'Goa':[250,443],'Maharashtra':[210,390],
-    'Tamil Nadu':[335,540],'Kerala':[278,525],
-  };
+  function initLeafletMap(geoData) {
+    // Destroy existing map instance if any
+    if(window._indiaLeafletMap) {
+      window._indiaLeafletMap.remove();
+      window._indiaLeafletMap = null;
+    }
 
-  const total = Object.values(stateCount).reduce((a,b)=>a+b,0);
-  const pathsSVG = Object.entries(statePaths).map(([state,d])=>{
-    const cnt = stateCount[state]||0;
-    const fill = getColor(state);
-    const [lx,ly] = stateLabels[state]||[0,0];
-    return `<g>
-      <path d="${d}" fill="${fill}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">
-        <title>${state}: ${cnt} patient${cnt!==1?'s':''}</title>
-      </path>
-      ${cnt>0?`<text x="${lx}" y="${ly}" style="font-size:10px;fill:${cnt/maxVal>0.5?'#fff':'#333'};font-weight:700;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.3)" text-anchor="middle">${cnt}</text>`:''}
-    </g>`;
-  }).join('');
+    const map = L.map('india-leaflet-map', {
+      zoomControl: true,
+      scrollWheelZoom: false,
+      attributionControl: false,
+      dragging: true,
+    });
+    window._indiaLeafletMap = map;
 
-  const container = document.getElementById('india-map-container');
-  if(!container) return;
-  container.innerHTML = `
-    <svg viewBox="50 10 650 600" width="100%" style="max-height:480px;display:block;margin:auto">
-      ${pathsSVG}
-      <text x="375" y="610" style="font-size:11px;fill:#94a3b8;font-family:sans-serif" text-anchor="middle">${total} patient${total!==1?'s':''} mapped by pincode · hover state for details</text>
-    </svg>`;
+    // No tile layer — white background
+    map.getContainer().style.background = '#f8fafc';
+
+    const geojsonLayer = L.geoJSON(geoData, {
+      style: feature => {
+        const geoName = feature.properties.NAME_1 || feature.properties.name || feature.properties.ST_NM || '';
+        const stateName = GEO_NAME_MAP[geoName] || geoName;
+        const cnt = stateCount[stateName]||0;
+        return {
+          fillColor: getColor(stateName),
+          fillOpacity: 0.85,
+          color: '#ffffff',
+          weight: 1.2,
+        };
+      },
+      onEachFeature: (feature, layer) => {
+        const geoName = feature.properties.NAME_1 || feature.properties.name || feature.properties.ST_NM || '';
+        const stateName = GEO_NAME_MAP[geoName] || geoName;
+        const cnt = stateCount[stateName]||0;
+        layer.bindTooltip(
+          `<strong>${stateName}</strong><br>${cnt} patient${cnt!==1?'s':''}`,
+          { sticky: true, className: 'leaflet-tooltip-india' }
+        );
+        layer.on('mouseover', function() { this.setStyle({ weight: 2.5, color: '#0A1628' }); });
+        layer.on('mouseout', function() { geojsonLayer.resetStyle(this); });
+      }
+    }).addTo(map);
+
+    map.fitBounds(geojsonLayer.getBounds(), { padding: [10, 10] });
+
+    // Add patient count labels for states with data
+    Object.entries(stateCount).forEach(([stateName, cnt]) => {
+      if(cnt === 0) return;
+      // Find the feature for this state
+      let found = null;
+      geoData.features.forEach(f => {
+        const gn = f.properties.NAME_1 || f.properties.name || f.properties.ST_NM || '';
+        if((GEO_NAME_MAP[gn]||gn) === stateName) found = f;
+      });
+      if(!found) return;
+      try {
+        const layer = L.geoJSON(found);
+        const center = layer.getBounds().getCenter();
+        L.marker(center, {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="background:rgba(10,22,40,0.75);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:10px;white-space:nowrap;pointer-events:none">${cnt}</div>`,
+            iconAnchor: [15, 10],
+          })
+        }).addTo(map);
+      } catch(e) {}
+    });
+  }
+
+  // Load Leaflet CSS + JS from CDN if not already loaded
+  function loadLeaflet(cb) {
+    if(window.L) { cb(); return; }
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    js.onload = cb;
+    document.head.appendChild(js);
+  }
+
+  // Fetch India GeoJSON from public CDN
+  const GEO_URL = 'https://raw.githubusercontent.com/geohacker/india/master/state/india_state.geojson';
+
+  loadLeaflet(() => {
+    // Use cached GeoJSON if available
+    if(window._indiaGeoJSON) {
+      initLeafletMap(window._indiaGeoJSON);
+      return;
+    }
+    container.innerHTML = `<div id="india-leaflet-map" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px">Loading map...</div>`;
+    fetch(GEO_URL)
+      .then(r => r.json())
+      .then(data => {
+        window._indiaGeoJSON = data;
+        container.innerHTML = `<div id="india-leaflet-map" style="width:100%;height:100%"></div>`;
+        initLeafletMap(data);
+      })
+      .catch(() => {
+        container.innerHTML = `<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px">Map unavailable — check internet connection</div>`;
+      });
+  });
 }
 
 // DOCTOR PROFILE
