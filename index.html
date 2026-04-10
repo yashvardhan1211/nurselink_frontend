@@ -7315,20 +7315,36 @@ function renderIndiaMap(filter) {
 
   // GeoJSON state name → our PINCODE_STATE_2 name mapping
   const GEO_NAME_MAP = {
-    'Andaman & Nicobar Island':'Andaman & Nicobar','Andhra Pradesh':'Andhra Pradesh',
-    'Arunanchal Pradesh':'Arunachal Pradesh','Assam':'Assam','Bihar':'Bihar',
+    // datameet/maps Admin2.geojson uses 'NAME' property
+    'Andaman & Nicobar Islands':'Andaman & Nicobar',
+    'Andaman and Nicobar Islands':'Andaman & Nicobar',
+    'Andhra Pradesh':'Andhra Pradesh',
+    'Arunachal Pradesh':'Arunachal Pradesh',
+    'Assam':'Assam','Bihar':'Bihar',
     'Chandigarh':'Chandigarh','Chhattisgarh':'Chhattisgarh',
-    'Dadra and Nagar Haveli':'Dadra & Nagar Haveli','Daman & Diu':'Daman & Diu',
-    'Delhi':'Delhi','Goa':'Goa','Gujarat':'Gujarat','Haryana':'Haryana',
-    'Himachal Pradesh':'Himachal Pradesh','Jammu & Kashmir':'Jammu & Kashmir',
+    'Dadra and Nagar Haveli':'Dadra & Nagar Haveli',
+    'Dadra & Nagar Haveli':'Dadra & Nagar Haveli',
+    'Daman and Diu':'Daman & Diu','Daman & Diu':'Daman & Diu',
+    'Delhi':'Delhi','NCT of Delhi':'Delhi',
+    'Goa':'Goa','Gujarat':'Gujarat','Haryana':'Haryana',
+    'Himachal Pradesh':'Himachal Pradesh',
+    'Jammu & Kashmir':'Jammu & Kashmir',
+    'Jammu and Kashmir':'Jammu & Kashmir',
     'Jharkhand':'Jharkhand','Karnataka':'Karnataka','Kerala':'Kerala',
-    'Lakshadweep':'Lakshadweep','Madhya Pradesh':'Madhya Pradesh',
-    'Maharashtra':'Maharashtra','Manipur':'Manipur','Meghalaya':'Meghalaya',
-    'Mizoram':'Mizoram','Nagaland':'Nagaland','Odisha':'Odisha',
-    'Puducherry':'Puducherry','Punjab':'Punjab','Rajasthan':'Rajasthan',
-    'Sikkim':'Sikkim','Tamil Nadu':'Tamil Nadu','Telangana':'Telangana',
-    'Tripura':'Tripura','Uttar Pradesh':'Uttar Pradesh','Uttarakhand':'Uttarakhand',
+    'Lakshadweep':'Lakshadweep',
+    'Madhya Pradesh':'Madhya Pradesh','Maharashtra':'Maharashtra',
+    'Manipur':'Manipur','Meghalaya':'Meghalaya','Mizoram':'Mizoram',
+    'Nagaland':'Nagaland','Odisha':'Odisha','Orissa':'Odisha',
+    'Puducherry':'Puducherry','Pondicherry':'Puducherry',
+    'Punjab':'Punjab','Rajasthan':'Rajasthan','Sikkim':'Sikkim',
+    'Tamil Nadu':'Tamil Nadu','Telangana':'Telangana',
+    'Tripura':'Tripura','Uttar Pradesh':'Uttar Pradesh',
+    'Uttarakhand':'Uttarakhand','Uttaranchal':'Uttarakhand',
     'West Bengal':'West Bengal',
+    // geohacker source fallbacks
+    'Andaman & Nicobar Island':'Andaman & Nicobar',
+    'Arunanchal Pradesh':'Arunachal Pradesh',
+    'Ladakh':'Jammu & Kashmir',  // merge Ladakh into J&K for display
   };
 
   function initLeafletMap(geoData) {
@@ -7343,6 +7359,8 @@ function renderIndiaMap(filter) {
       scrollWheelZoom: false,
       attributionControl: false,
       dragging: true,
+      maxBounds: [[5, 65], [40, 100]],
+      maxBoundsViscosity: 0.8,
     });
     window._indiaLeafletMap = map;
 
@@ -7351,7 +7369,7 @@ function renderIndiaMap(filter) {
 
     const geojsonLayer = L.geoJSON(geoData, {
       style: feature => {
-        const geoName = feature.properties.NAME_1 || feature.properties.name || feature.properties.ST_NM || '';
+        const geoName = feature.properties.NAME_1 || feature.properties.NAME || feature.properties.name || feature.properties.ST_NM || feature.properties.State || '';
         const stateName = GEO_NAME_MAP[geoName] || geoName;
         const cnt = stateCount[stateName]||0;
         return {
@@ -7362,7 +7380,7 @@ function renderIndiaMap(filter) {
         };
       },
       onEachFeature: (feature, layer) => {
-        const geoName = feature.properties.NAME_1 || feature.properties.name || feature.properties.ST_NM || '';
+        const geoName = feature.properties.NAME_1 || feature.properties.NAME || feature.properties.name || feature.properties.ST_NM || feature.properties.State || '';
         const stateName = GEO_NAME_MAP[geoName] || geoName;
         const cnt = stateCount[stateName]||0;
         layer.bindTooltip(
@@ -7374,7 +7392,9 @@ function renderIndiaMap(filter) {
       }
     }).addTo(map);
 
-    map.fitBounds(geojsonLayer.getBounds(), { padding: [10, 10] });
+    // Use India's actual geographic bounds to ensure full map including J&K is visible
+    // SW: 6.5°N 68°E  NE: 37.5°N 97.5°E
+    map.fitBounds([[6.5, 68.0], [37.5, 97.5]], { padding: [5, 5] });
 
     // Add patient count labels for states with data
     Object.entries(stateCount).forEach(([stateName, cnt]) => {
@@ -7382,7 +7402,7 @@ function renderIndiaMap(filter) {
       // Find the feature for this state
       let found = null;
       geoData.features.forEach(f => {
-        const gn = f.properties.NAME_1 || f.properties.name || f.properties.ST_NM || '';
+        const gn = f.properties.NAME_1 || f.properties.NAME || f.properties.name || f.properties.ST_NM || f.properties.State || '';
         if((GEO_NAME_MAP[gn]||gn) === stateName) found = f;
       });
       if(!found) return;
@@ -7413,8 +7433,13 @@ function renderIndiaMap(filter) {
     document.head.appendChild(js);
   }
 
-  // Fetch India GeoJSON from public CDN
+  // Fetch India GeoJSON — complete boundaries including full J&K
   const GEO_URL = 'https://raw.githubusercontent.com/geohacker/india/master/state/india_state.geojson';
+  // Clear stale cache so new property mappings take effect
+  if(window._indiaGeoJSON && window._indiaGeoJSONSource !== GEO_URL) {
+    window._indiaGeoJSON = null;
+  }
+  window._indiaGeoJSONSource = GEO_URL;
 
   loadLeaflet(() => {
     // Use cached GeoJSON if available

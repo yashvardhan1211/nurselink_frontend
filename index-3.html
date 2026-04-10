@@ -7178,35 +7178,46 @@ function renderIndiaMap(filter) {
   }
 
   const GEO_NAME_MAP = {
-    'Andaman & Nicobar Island':'Andaman & Nicobar','Andhra Pradesh':'Andhra Pradesh',
-    'Arunanchal Pradesh':'Arunachal Pradesh','Assam':'Assam','Bihar':'Bihar',
+    'Andaman & Nicobar Island':'Andaman & Nicobar',
+    'Andaman and Nicobar Islands':'Andaman & Nicobar',
+    'Andhra Pradesh':'Andhra Pradesh',
+    'Arunanchal Pradesh':'Arunachal Pradesh','Arunachal Pradesh':'Arunachal Pradesh',
+    'Assam':'Assam','Bihar':'Bihar',
     'Chandigarh':'Chandigarh','Chhattisgarh':'Chhattisgarh',
     'Dadra and Nagar Haveli':'Dadra & Nagar Haveli','Daman & Diu':'Daman & Diu',
-    'Delhi':'Delhi','Goa':'Goa','Gujarat':'Gujarat','Haryana':'Haryana',
-    'Himachal Pradesh':'Himachal Pradesh','Jammu & Kashmir':'Jammu & Kashmir',
+    'Delhi':'Delhi','NCT of Delhi':'Delhi',
+    'Goa':'Goa','Gujarat':'Gujarat','Haryana':'Haryana',
+    'Himachal Pradesh':'Himachal Pradesh',
+    'Jammu & Kashmir':'Jammu & Kashmir','Jammu and Kashmir':'Jammu & Kashmir',
+    'Ladakh':'Jammu & Kashmir',
     'Jharkhand':'Jharkhand','Karnataka':'Karnataka','Kerala':'Kerala',
     'Lakshadweep':'Lakshadweep','Madhya Pradesh':'Madhya Pradesh',
     'Maharashtra':'Maharashtra','Manipur':'Manipur','Meghalaya':'Meghalaya',
-    'Mizoram':'Mizoram','Nagaland':'Nagaland','Odisha':'Odisha',
-    'Puducherry':'Puducherry','Punjab':'Punjab','Rajasthan':'Rajasthan',
-    'Sikkim':'Sikkim','Tamil Nadu':'Tamil Nadu','Telangana':'Telangana',
-    'Tripura':'Tripura','Uttar Pradesh':'Uttar Pradesh','Uttarakhand':'Uttarakhand',
+    'Mizoram':'Mizoram','Nagaland':'Nagaland','Odisha':'Odisha','Orissa':'Odisha',
+    'Puducherry':'Puducherry','Pondicherry':'Puducherry',
+    'Punjab':'Punjab','Rajasthan':'Rajasthan','Sikkim':'Sikkim',
+    'Tamil Nadu':'Tamil Nadu','Telangana':'Telangana',
+    'Tripura':'Tripura','Uttar Pradesh':'Uttar Pradesh',
+    'Uttarakhand':'Uttarakhand','Uttaranchal':'Uttarakhand',
     'West Bengal':'West Bengal',
   };
 
   function initLeafletMap(geoData) {
     if(window._indiaLeafletMap) { window._indiaLeafletMap.remove(); window._indiaLeafletMap = null; }
-    const map = L.map('india-leaflet-map', { zoomControl:true, scrollWheelZoom:false, attributionControl:false, dragging:true });
+    const map = L.map('india-leaflet-map', {
+      zoomControl:true, scrollWheelZoom:false, attributionControl:false, dragging:true,
+      maxBounds:[[5,65],[40,100]], maxBoundsViscosity:0.8,
+    });
     window._indiaLeafletMap = map;
     map.getContainer().style.background = '#f8fafc';
     const geojsonLayer = L.geoJSON(geoData, {
       style: feature => {
-        const geoName = feature.properties.NAME_1 || feature.properties.name || feature.properties.ST_NM || '';
+        const geoName = feature.properties.NAME_1 || feature.properties.NAME || feature.properties.name || feature.properties.ST_NM || feature.properties.State || '';
         const stateName = GEO_NAME_MAP[geoName] || geoName;
         return { fillColor: getColor(stateName), fillOpacity: 0.85, color: '#ffffff', weight: 1.2 };
       },
       onEachFeature: (feature, layer) => {
-        const geoName = feature.properties.NAME_1 || feature.properties.name || feature.properties.ST_NM || '';
+        const geoName = feature.properties.NAME_1 || feature.properties.NAME || feature.properties.name || feature.properties.ST_NM || feature.properties.State || '';
         const stateName = GEO_NAME_MAP[geoName] || geoName;
         const cnt = stateCount[stateName]||0;
         layer.bindTooltip(`<strong>${stateName}</strong><br>${cnt} patient${cnt!==1?'s':''}`, { sticky:true });
@@ -7214,11 +7225,12 @@ function renderIndiaMap(filter) {
         layer.on('mouseout', function() { geojsonLayer.resetStyle(this); });
       }
     }).addTo(map);
-    map.fitBounds(geojsonLayer.getBounds(), { padding:[10,10] });
+    // Hardcoded India bounds: SW 6.5°N 68°E → NE 37.5°N 97.5°E — ensures full J&K is visible
+    map.fitBounds([[6.5, 68.0], [37.5, 97.5]], { padding:[5,5] });
     Object.entries(stateCount).forEach(([stateName, cnt]) => {
       if(!cnt) return;
       let found = null;
-      geoData.features.forEach(f => { const gn = f.properties.NAME_1||f.properties.name||f.properties.ST_NM||''; if((GEO_NAME_MAP[gn]||gn)===stateName) found=f; });
+      geoData.features.forEach(f => { const gn = f.properties.NAME_1||f.properties.NAME||f.properties.name||f.properties.ST_NM||f.properties.State||''; if((GEO_NAME_MAP[gn]||gn)===stateName) found=f; });
       if(!found) return;
       try {
         const center = L.geoJSON(found).getBounds().getCenter();
@@ -7232,6 +7244,9 @@ function renderIndiaMap(filter) {
     const css = document.createElement('link'); css.rel='stylesheet'; css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
     const js = document.createElement('script'); js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; js.onload=cb; document.head.appendChild(js);
   }
+
+  // Clear stale cache so updated property mappings take effect
+  window._indiaGeoJSON = null;
 
   loadLeaflet(() => {
     if(window._indiaGeoJSON) { initLeafletMap(window._indiaGeoJSON); return; }
