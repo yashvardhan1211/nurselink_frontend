@@ -1341,7 +1341,7 @@ function renderTopbar() {
   if (S.currentRole === 'Patient') {
     const pname = window._patientUser ? window._patientUser.name : 'Patient';
     document.getElementById('role-switcher').innerHTML =
-      `<span style="padding:5px 14px;border-radius:20px;background:var(--teal);color:white;font-size:12px;font-weight:700">ðŸ§‘â€!•ï¸ ${pname}</span>`;
+      `<span style="padding:5px 14px;border-radius:20px;background:var(--teal);color:white;font-size:12px;font-weight:700">${pname}</span>`;
   } else if (IS_LIVE) {
     const color = roleColors[S.currentRole] || 'var(--teal)';
     document.getElementById('role-switcher').innerHTML =
@@ -1417,7 +1417,7 @@ function renderSidebar() {
 
       { icon:'🩺', label:'Patient AI', view:'patientai' },
 
-      { icon:'ðŸ’Š', label:'My Prescriptions', view:'patient-rx' },
+      { icon:'📚', label:'My Prescriptions', view:'patient-rx' },
 
       { icon:'📎', label:'Discharge Summary', view:'patient-discharge' },
 
@@ -4203,9 +4203,9 @@ function renderAdminTriageForm() {
       </div>
 
       <div style="position:sticky;top:80px;display:flex;flex-direction:column;gap:12px">
-        <!-- AI Triage Score -->
+        <Triage Score>
         <div id="at-triage-panel" style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
-          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">Triage Score</div>
           <div style="padding:16px;text-align:center;color:#94a3b8">
             <div style="font-size:32px;margin-bottom:8px">🩺</div>
             <div style="font-size:12px">Enter vitals to see score</div>
@@ -4223,7 +4223,7 @@ function renderAdminTriageForm() {
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                   <div style="width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:13px;flex-shrink:0">${d.name.charAt(0)}</div>
                   <div style="flex:1"><div style="font-weight:700;font-size:12px">${d.name}</div><div style="font-size:10px;color:#64748b">${d.specialty||d.department||'General'}</div></div>
-                  <div id="at-badge-${d.id}" style="display:none;background:#00B4A6;color:white;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px">AI Pick</div>
+                  <div id="at-badge-${d.id}" style="display:none;background:#00B4A6;color:white;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px">Pick</div>
                 </div>
                 <div style="font-size:10px;color:#64748b;margin-bottom:3px">Patients: <strong>${load}</strong></div>
                 <div style="height:3px;background:#e2e8f0;border-radius:2px"><div style="height:3px;background:${pct>70?'#e53e3e':pct>40?'#dd6b20':'#00B4A6'};border-radius:2px;width:${pct}%"></div></div>
@@ -4273,7 +4273,7 @@ function adminTriageUpdate() {
 
   panel.innerHTML = `
     <div style="border:2px solid ${sc};border-radius:10px;overflow:hidden">
-      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">Triage Score</div>
       <div style="padding:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-size:20px;font-weight:900;color:${sc}">${em} ${result.severity}</span>
@@ -4392,7 +4392,7 @@ function renderAdmitForm() {
 
         </div>
 
-        <div id="doc-badge-${d.id}" style="margin-left:auto;display:none;background:var(--teal);color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">AI Pick</div>
+        <div id="doc-badge-${d.id}" style="margin-left:auto;display:none;background:var(--teal);color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">Algorithmic Pick</div>
 
       </div>
 
@@ -4414,7 +4414,7 @@ function renderAdmitForm() {
 
         <div class="section-title" id="admit-form-title">New Patient</div>
 
-        <div class="section-sub" id="admit-form-sub">Enter patient details — AI triage updates live</div>
+        <div class="section-sub" id="admit-form-sub">Enter patient details — Triage updates live</div>
 
       </div>
 
@@ -5857,7 +5857,75 @@ function showAddStaffModal() {
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Department</label><input class="form-control" id="sf-dept" placeholder="e.g. Cardiology, Ward A"></div>
+        <div class="form-group"><label class="form-label">Department</label>
+          <select class="form-control" id="sf-dept">
+            <option value="">— Select Department —</option>
+            <optgroup label="General">
+              <option>General Medicine</option>
+              <option>General Surgery</option>
+              <option>Emergency Medicine</option>
+              <option>Family Medicine</option>
+              <option>Critical Care Medicine</option>
+              <option>Palliative Medicine</option>
+            </optgroup>
+            <optgroup label="Medical Specialties">
+              <option>Cardiology</option>
+              <option>Neurology</option>
+              <option>Nephrology</option>
+              <option>Endocrinology</option>
+              <option>Gastroenterology</option>
+              <option>Pulmonary Medicine</option>
+              <option>Rheumatology</option>
+              <option>Infectious Diseases</option>
+              <option>Clinical Hematology</option>
+              <option>Medical Oncology</option>
+              <option>Geriatric Medicine</option>
+              <option>Dermatology</option>
+              <option>Psychiatry</option>
+            </optgroup>
+            <optgroup label="Surgical Specialties">
+              <option>Orthopedics</option>
+              <option>Neurosurgery</option>
+              <option>Urology</option>
+              <option>Cardiothoracic & Vascular Surgery</option>
+              <option>Plastic & Reconstructive Surgery</option>
+              <option>Pediatric Surgery</option>
+              <option>Surgical Oncology</option>
+              <option>Gastrointestinal Surgery</option>
+              <option>Endocrine Surgery</option>
+              <option>Hepatobiliary Surgery</option>
+              <option>Vascular Surgery</option>
+            </optgroup>
+            <optgroup label="Other Specialties">
+              <option>Obstetrics & Gynaecology</option>
+              <option>Pediatrics</option>
+              <option>Ophthalmology</option>
+              <option>ENT</option>
+              <option>Anesthesiology</option>
+              <option>Radiology</option>
+              <option>Radiodiagnosis</option>
+              <option>Nuclear Medicine</option>
+              <option>Transfusion Medicine</option>
+              <option>Pain Medicine</option>
+              <option>Sports Medicine</option>
+              <option>Clinical Nutrition</option>
+              <option>Regenerative Medicine</option>
+              <option>Public Health</option>
+              <option>Hospital Administration</option>
+            </optgroup>
+            <optgroup label="Nursing / Support">
+              <option>Ward A</option>
+              <option>Ward B</option>
+              <option>Ward C</option>
+              <option>ICU</option>
+              <option>NICU</option>
+              <option>OT</option>
+              <option>Pharmacy</option>
+              <option>Pathology</option>
+              <option>Administration</option>
+            </optgroup>
+          </select>
+        </div>
         <div class="form-group"><label class="form-label">Employee ID</label><input class="form-control" id="sf-emp" placeholder="e.g. D-003"></div>
       </div>
       <div class="form-row">
@@ -7913,20 +7981,67 @@ function assignDoctor(specialty, severity) {
   const doctors = S.staff.filter(s => s.role === 'Doctor');
   if (!doctors.length) return null;
 
-  // Score each doctor: specialty match + workload + availability
+  // Comprehensive specialty → department mapping
+  const SPECIALTY_MAP = {
+    'Cardiology':              ['cardiology','cardiothoracic','cardiac','ctvs','heart'],
+    'Neurology':               ['neurology','neurosurgery','neuro','brain','stroke'],
+    'Pulmonology':             ['pulmonary','pulmonology','respiratory','chest','lung','copd'],
+    'Emergency':               ['emergency','critical care','icu','trauma','accident'],
+    'Gastroenterology':        ['gastroenterology','gastro','gi surgery','gastrointestinal','hepatobiliary','liver'],
+    'Endocrinology':           ['endocrinology','endocrine','diabetes','thyroid','hormone'],
+    'Nephrology':              ['nephrology','kidney','renal','dialysis'],
+    'Infectious Disease':      ['infectious','infection','microbiology','tropical','hiv','sepsis'],
+    'Hematology':              ['hematology','haematology','blood bank','transfusion','oncology'],
+    'Orthopedics':             ['orthopedic','orthopaedic','bone','joint','fracture','spine'],
+    'Psychiatry':              ['psychiatry','mental','psychology','behavioral'],
+    'Dermatology':             ['dermatology','skin','dvl','leprosy'],
+    'Ophthalmology':           ['ophthalmology','eye','vision','retina'],
+    'ENT':                     ['ent','otorhinolaryngology','ear','nose','throat'],
+    'Urology':                 ['urology','urinary','kidney stone','prostate'],
+    'Obstetrics & Gynaecology':['obstetrics','gynaecology','gynecology','obg','maternal','pregnancy'],
+    'Pediatrics':              ['pediatrics','paediatrics','child','neonatal','nicu'],
+    'Rheumatology':            ['rheumatology','arthritis','autoimmune','joint'],
+    'Anesthesiology':          ['anesthesiology','anaesthesia','pain medicine','pain'],
+    'Radiology':               ['radiology','radiodiagnosis','imaging','nuclear medicine'],
+    'Surgery':                 ['surgery','surgical','general surgery','vascular surgery','plastic'],
+    'General Medicine':        ['general medicine','internal medicine','family medicine','general'],
+    'Palliative Medicine':     ['palliative','geriatric','elderly'],
+    'Nutrition':               ['nutrition','dietetics','lifestyle'],
+  };
+
   const scored = doctors.map(d => {
     let pts = 0;
-    const spec = (d.specialty || d.department || '').toLowerCase();
-    const specLower = specialty.toLowerCase();
-    if (spec.includes(specLower) || specLower.includes(spec)) pts += 50;
-    else if (spec.includes('general') || spec.includes('emergency')) pts += 20;
+    const deptRaw = (d.specialty || d.dept || d.department || '').toLowerCase().trim();
 
-    // Workload: count active patients
+    // Find which category this doctor's department belongs to
+    let docCategory = 'General Medicine';
+    for (const [cat, keywords] of Object.entries(SPECIALTY_MAP)) {
+      if (keywords.some(k => deptRaw.includes(k))) { docCategory = cat; break; }
+    }
+
+    // Find which category the triage specialty maps to
+    const specLower = specialty.toLowerCase();
+    let triageCategory = specialty;
+    for (const [cat, keywords] of Object.entries(SPECIALTY_MAP)) {
+      if (keywords.some(k => specLower.includes(k) || k.includes(specLower))) { triageCategory = cat; break; }
+    }
+
+    // Exact category match = highest score
+    if (docCategory === triageCategory) pts += 80;
+    // Direct string match fallback
+    else if (deptRaw.includes(specLower) || specLower.includes(deptRaw)) pts += 60;
+    // General/Emergency can handle anything
+    else if (deptRaw.includes('general') || deptRaw.includes('emergency') || deptRaw.includes('critical')) pts += 15;
+
+    // Critical severity: prefer Emergency/Critical Care
+    if (severity === 'CRITICAL' && (deptRaw.includes('emergency') || deptRaw.includes('critical'))) pts += 30;
+
+    // Workload penalty
     const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
     pts -= load * 5;
 
-    // Availability
-    if (d.available === false) pts -= 100;
+    // Unavailable penalty
+    if (d.available === false) pts -= 200;
 
     return { doc: d, pts, load };
   });
