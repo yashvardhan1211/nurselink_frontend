@@ -94,9 +94,17 @@ CREATE TABLE IF NOT EXISTS lab_orders (
   priority TEXT DEFAULT 'Routine',
   status TEXT DEFAULT 'Pending',
   result TEXT,
+  result_status TEXT DEFAULT '',
+  report_url TEXT,
+  report_name TEXT,
   ordered_by_id INTEGER REFERENCES staff(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add report columns if upgrading existing DB
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS result_status TEXT DEFAULT '';
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_url TEXT;
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_name TEXT;
 
 CREATE TABLE IF NOT EXISTS alerts (
   id SERIAL PRIMARY KEY,

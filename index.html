@@ -3091,11 +3091,11 @@ function renderLabsTab(id, p) {
         </div>
         ${l.result ? `<div style="font-size:12px;font-family:var(--mono);padding:6px 10px;background:var(--panel);border-radius:6px;width:100%;color:${l.resultStatus==='Critical'?'var(--red)':l.resultStatus==='Abnormal'?'var(--warn)':'var(--success)'}">${l.result}</div>` : ''}
         ${l.reportUrl ? `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#E3F2FD;border-radius:6px;width:100%">
-          <span style="font-size:16px">📄</span>
-          <span style="font-size:12px;flex:1;color:#1565C0">${l.reportName||'Lab Report'}</span>
-          <button class="btn btn-primary btn-sm" onclick="viewLabReport('${l.id}')">👁 View</button>
-          <button class="btn btn-outline btn-sm" onclick="downloadLabReport('${l.id}')">⬇ Download</button>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#E3F2FD;border-radius:8px;width:100%;border-left:3px solid #1976D2;box-sizing:border-box">
+          <span style="font-size:18px;flex-shrink:0">📄</span>
+          <span style="font-size:12px;flex:1;color:#1565C0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.reportName||'Lab Report'}</span>
+          <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();viewLabReport('${l.id}')">👁 View</button>
+          <button class="btn btn-outline btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();downloadLabReport('${l.id}')">⬇ Download</button>
         </div>` : ''}
       </div>
     `).join('')}
@@ -5952,21 +5952,31 @@ function handleLabReportSelect(e) {
 }
 
 function viewLabReport(labId) {
-  // Find the lab order across all patients
   let lab = null;
   for (const pid of Object.keys(S.labOrders)) {
     lab = S.labOrders[pid].find(l => String(l.id) === String(labId));
     if (lab) break;
   }
   if (!lab?.reportUrl) { showToast('No report file available', 'warn'); return; }
-  // Open in new window
-  const win = window.open('', '_blank');
-  if (lab.reportUrl.startsWith('data:image')) {
-    win.document.write(`<html><body style="margin:0;background:#000"><img src="${lab.reportUrl}" style="max-width:100%;display:block;margin:auto"></body></html>`);
-  } else {
-    win.document.write(`<html><body style="margin:0"><embed src="${lab.reportUrl}" type="application/pdf" width="100%" height="100%" style="position:fixed;inset:0"></body></html>`);
+
+  try {
+    // Convert base64 data URL to Blob URL for reliable viewing
+    const dataUrl = lab.reportUrl;
+    if (dataUrl.startsWith('data:')) {
+      const [meta, b64] = dataUrl.split(',');
+      const mime = meta.match(/:(.*?);/)[1];
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mime });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } else {
+      window.open(dataUrl, '_blank');
+    }
+  } catch(e) {
+    showToast('Could not open report: ' + e.message, 'error');
   }
-  win.document.close();
 }
 
 function downloadLabReport(labId) {
@@ -5976,10 +5986,31 @@ function downloadLabReport(labId) {
     if (lab) break;
   }
   if (!lab?.reportUrl) { showToast('No report file available', 'warn'); return; }
-  const a = document.createElement('a');
-  a.href = lab.reportUrl;
-  a.download = lab.reportName || `lab_report_${labId}`;
-  a.click();
+
+  try {
+    const dataUrl = lab.reportUrl;
+    if (dataUrl.startsWith('data:')) {
+      const [meta, b64] = dataUrl.split(',');
+      const mime = meta.match(/:(.*?);/)[1];
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = lab.reportName || `lab_report_${labId}`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } else {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = lab.reportName || `lab_report_${labId}`;
+      a.click();
+    }
+  } catch(e) {
+    showToast('Could not download report: ' + e.message, 'error');
+  }
 }
 
 function processLabReportFile(file) {
