@@ -1035,6 +1035,31 @@ function connectSocket() {
       renderAlertFeed();
       try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
     });
+
+    // Network real-time events
+    socket.on('network:post', post => {
+      if (!S.network) S.network = {posts:[],dms:{}};
+      if (!S.network.posts.find(p=>String(p.id)===String(post.id))) {
+        S.network.posts.push({ id:String(post.id), authorId:String(post.author_id), authorName:post.author_name, text:post.text, tag:post.tag, caseLabel:post.case_label, caseHistory:post.case_history, time:new Date(post.created_at).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}), likes:[], replies:[] });
+        if ((S.activeNavItem[S.currentRole]||getDefaultView()) === 'network') renderNetworkPage();
+      }
+    });
+    socket.on('network:reply', reply => {
+      if (!S.network) return;
+      const post = S.network.posts.find(p=>String(p.id)===String(reply.post_id));
+      if (post) { if(!post.replies) post.replies=[]; post.replies.push({by:reply.author_name, text:reply.text, time:new Date(reply.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}); }
+      if ((S.activeNavItem[S.currentRole]||getDefaultView()) === 'network') renderNetworkPage();
+    });
+    socket.on('network:dm', msg => {
+      if (!S.network) S.network={posts:[],dms:{}};
+      const myId = window._loggedInUser ? String(window._loggedInUser.id) : null;
+      if (!myId) return;
+      const dmKey = [String(msg.sender_id), String(msg.receiver_id)].sort().join('_');
+      if (!S.network.dms[dmKey]) S.network.dms[dmKey] = [];
+      S.network.dms[dmKey].push({ from:String(msg.sender_id), text:msg.text, time:new Date(msg.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}), read:false });
+      if ((S.activeNavItem[S.currentRole]||getDefaultView()) === 'network' && S._dmTo===String(msg.sender_id)) renderNetworkPage();
+      else { S.notifications.unshift({ id:'N'+Date.now(), role:S.currentRole, title:`Message from ${msg.sender_name}`, body:msg.text?.substring(0,50), time:ts(), read:false }); renderNotifBadge(); }
+    });
   };
   document.head.appendChild(script);
 }
@@ -7163,11 +7188,36 @@ function renderNetworkPage() {
     ` : ''}
 
     ${activeTab==='rank' ? `
+    <div class="card mb-4">
+      <div class="card-header"><h3>🏥 Active Patients by Doctor</h3><span class="text-muted" style="font-size:11px">Live from server</span></div>
+      <div class="card-body" style="padding:0">
+        <table class="data-table">
+          <thead><tr><th>Doctor</th><th>Specialty</th><th>Active IPD</th><th>OPD Today</th><th>Discharged</th><th>Total</th></tr></thead>
+          <tbody>
+            ${ranked.map(d => {
+              const active = S.patients.filter(p=>String(p.doctorId)===String(d.id)&&p.status==='Active').length;
+              const opd = S.patients.filter(p=>String(p.doctorId)===String(d.id)&&p.status==='OPD').length;
+              const dc = S.patients.filter(p=>String(p.doctorId)===String(d.id)&&p.status==='Discharged').length;
+              const total = S.patients.filter(p=>String(p.doctorId)===String(d.id)).length;
+              const isMe = d.id===myId;
+              return `<tr style="${isMe?'background:#E0F7FA;font-weight:600':''}">
+                <td class="fw-600">${d.name}${isMe?' 👤':''}</td>
+                <td style="font-size:12px;color:#64748b">${d.specialty||d.dept||'General Medicine'}</td>
+                <td><span style="font-weight:700;color:#00B4A6">${active}</span></td>
+                <td><span style="font-weight:700;color:#5C6BC0">${opd}</span></td>
+                <td><span style="font-weight:700;color:#2E7D32">${dc}</span></td>
+                <td class="fw-600">${total}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header"><h3>🏆 Doctor Rankings</h3><span class="text-muted" style="font-size:11px">Based on clinical activity</span></div>
       <div class="card-body" style="padding:0">
         <table class="data-table">
-          <thead><tr><th>#</th><th>Doctor</th><th>Dept</th><th>Score</th><th>Tier</th><th>Patients</th><th>Notes</th><th>DC'd</th></tr></thead>
+          <thead><tr><th>#</th><th>Doctor</th><th>Specialty</th><th>Score</th><th>Tier</th><th>Patients</th><th>Notes</th><th>DC'd</th></tr></thead>
           <tbody>
             ${ranked.map((d,i)=>{
               const pts = S.patients.filter(p=>String(p.doctorId)===String(d.id));
@@ -7177,7 +7227,7 @@ function renderNetworkPage() {
               return `<tr style="${isMe?'background:var(--panel);font-weight:600':''}">
                 <td style="font-size:16px">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1)}</td>
                 <td class="fw-600">${d.name}${isMe?' (you)':''}</td>
-                <td style="font-size:12px">${d.dept}</td>
+                <td style="font-size:12px">${d.specialty||d.dept||'General Medicine'}</td>
                 <td style="font-weight:800;color:${d.tier.color}">${d.score}</td>
                 <td><span style="font-size:11px">${d.tier.icon} ${d.tier.label}</span></td>
                 <td>${pts.length}</td>
