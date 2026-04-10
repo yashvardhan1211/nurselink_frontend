@@ -43,6 +43,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign({ id: user.id, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token, id: user.id, name: user.name, role: user.role, department: user.department });
+    logAudit(user.id, user.name, user.role, `User logged in`, 'auth', String(user.id), null, req.ip);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -130,6 +131,7 @@ app.post('/api/patients', auth, async (req, res) => {
        b.insurance_company||null,b.insurance_policy||null,b.insurance_member||null,b.insurance_type||null]
     );
     io.emit('patient:admitted', { patientId: r.rows[0].id });
+    logAudit(req.user.id, req.user.name, req.user.role, `Admitted patient ${b.name}`, 'patient', String(r.rows[0].id), null, req.ip);
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -165,6 +167,7 @@ app.patch('/api/patients/:id/discharge', auth, async (req, res) => {
       [req.body.condition||'Stable', req.params.id]
     );
     io.emit('patient:discharged', { patientId: req.params.id });
+    logAudit(req.user.id, req.user.name, req.user.role, `Discharged patient #${req.params.id} — Condition: ${req.body.condition||'Stable'}`, 'patient', req.params.id, null, req.ip);
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -267,6 +270,9 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
     const vitalsRow = { ...r.rows[0], patient_id: pid, recorded_by_name: req.user.name };
     io.emit('vitals:new', vitalsRow);
 
+    // Log audit
+    logAudit(req.user.id, req.user.name, req.user.role, `Recorded vitals for patient #${pid}`, 'vitals', String(r.rows[0].id), { bp: `${b.bp_sys}/${b.bp_dia}`, spo2: b.spo2, pulse: b.pulse }, req.ip);
+
     // Auto-generate alerts from vital thresholds
     const alerts = [];
     const sbp = b.bp_sys, dbp = b.bp_dia, pulse = b.pulse, spo2 = b.spo2;
@@ -354,6 +360,7 @@ app.post('/api/prescriptions/:pid', auth, async (req, res) => {
     );
     const row = { ...r.rows[0], patient_id: pid, prescribed_by_name: req.user.name };
     io.emit('prescription:new', row);
+    logAudit(req.user.id, req.user.name, req.user.role, `Prescribed ${b.drug} ${b.dose} for patient #${pid}`, 'prescription', String(r.rows[0].id), null, req.ip);
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -447,6 +454,7 @@ app.patch('/api/labs/:id/result', auth, async (req, res) => {
       ordered_by_name: req.user.name,
     };
     io.emit('labs:result', emitData);
+    logAudit(req.user.id, req.user.name, req.user.role, `Submitted lab result for ${labRow.test_name||'test'} — ${result_status}`, 'lab_order', req.params.id, null, req.ip);
     res.json(labRow);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -590,6 +598,108 @@ app.post('/api/mar', auth, async (req, res) => {
       [req.body.prescription_id,req.body.patient_id,req.body.status,req.user.id]
     );
     res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── NURSING NOTES ─────────────────────────────────────────────────────────────
+app.get('/api/notes/nursing/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT n.*,s.name as written_by_name FROM nursing_notes n
+       LEFT JOIN staff s ON s.id=n.written_by_id
+       WHERE n.patient_id=$1 ORDER BY n.created_at DESC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/notes/nursing/:pid', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const r = await pool.query(
+      'INSERT INTO nursing_notes(patient_id,note,written_by_id) VALUES($1,$2,$3) RETURNING *',
+      [req.params.pid, req.body.note||'', req.user.id]
+    );
+    logAudit(req.user.id, req.user.name, req.user.role, `Added nursing note for patient #${req.params.pid}`, 'nursing_note', String(r.rows[0].id), null, req.ip);
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── VACCINATIONS ──────────────────────────────────────────────────────────────
+app.get('/api/vaccinations/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT v.*,s.name as given_by_name FROM vaccinations v
+       LEFT JOIN staff s ON s.id=v.given_by_id
+       WHERE v.patient_id=$1 ORDER BY v.created_at DESC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/vaccinations/:pid', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const b = req.body;
+  try {
+    const r = await pool.query(
+      `INSERT INTO vaccinations(patient_id,name,dose,dose_number,route,date_administered,next_due_date,notes,given_by_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.params.pid,b.name,b.dose||'',b.dose_number||'',b.route||'IM',
+       b.date_administered||null,b.next_due_date||null,b.notes||'',req.user.id]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── FACILITY (Beds + Insurance) ───────────────────────────────────────────────
+app.post('/api/facility/beds', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const r = await pool.query(
+      'INSERT INTO facility_beds(bed_id,ward,type) VALUES($1,$2,$3) ON CONFLICT(bed_id) DO UPDATE SET ward=$2,type=$3 RETURNING *',
+      [req.body.bed_id, req.body.ward||'A', req.body.type||'General']
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/facility/beds/:bedId', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    await pool.query('DELETE FROM facility_beds WHERE bed_id=$1', [req.params.bedId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/facility/insurance', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query('SELECT * FROM facility_insurance ORDER BY name');
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/facility/insurance', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const b = req.body;
+  try {
+    const r = await pool.query(
+      'INSERT INTO facility_insurance(name,policy_types,contact,notes) VALUES($1,$2,$3,$4) RETURNING *',
+      [b.name, b.policy_types||'', b.contact||'', b.notes||'']
+    );
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/facility/insurance/:id', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    await pool.query('DELETE FROM facility_insurance WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -831,6 +941,33 @@ if (pool) {
       id SERIAL PRIMARY KEY, patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
       staff_id INTEGER REFERENCES staff(id) ON DELETE CASCADE, role TEXT NOT NULL,
       added_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(patient_id, staff_id)
+    );
+    CREATE TABLE IF NOT EXISTS nursing_notes (
+      id SERIAL PRIMARY KEY, patient_id INTEGER REFERENCES patients(id),
+      note TEXT NOT NULL, written_by_id INTEGER REFERENCES staff(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS vaccinations (
+      id SERIAL PRIMARY KEY, patient_id INTEGER REFERENCES patients(id),
+      name TEXT NOT NULL, dose TEXT DEFAULT '', dose_number TEXT DEFAULT '',
+      route TEXT DEFAULT 'IM', date_administered DATE, next_due_date DATE,
+      notes TEXT DEFAULT '', given_by_id INTEGER REFERENCES staff(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS facility_beds (
+      id SERIAL PRIMARY KEY, bed_id TEXT UNIQUE NOT NULL,
+      ward TEXT DEFAULT 'A', type TEXT DEFAULT 'General',
+      status TEXT DEFAULT 'available', created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS facility_insurance (
+      id SERIAL PRIMARY KEY, name TEXT NOT NULL,
+      policy_types TEXT DEFAULT '', contact TEXT DEFAULT '',
+      notes TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS network_dms (
+      id SERIAL PRIMARY KEY, sender_id INTEGER REFERENCES staff(id),
+      receiver_id INTEGER REFERENCES staff(id), text TEXT NOT NULL,
+      read BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `).then(() => console.log('DB migration: new tables ensured'))
     .catch(e => console.warn('DB migration warning:', e.message));

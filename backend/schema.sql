@@ -256,3 +256,57 @@ CREATE TABLE IF NOT EXISTS network_dms (
   read BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Nursing notes
+CREATE TABLE IF NOT EXISTS nursing_notes (
+  id SERIAL PRIMARY KEY,
+  patient_id INTEGER REFERENCES patients(id),
+  note TEXT NOT NULL,
+  written_by_id INTEGER REFERENCES staff(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Vaccinations
+CREATE TABLE IF NOT EXISTS vaccinations (
+  id SERIAL PRIMARY KEY,
+  patient_id INTEGER REFERENCES patients(id),
+  name TEXT NOT NULL,
+  dose TEXT DEFAULT '',
+  dose_number TEXT DEFAULT '',
+  route TEXT DEFAULT 'IM',
+  date_administered DATE,
+  next_due_date DATE,
+  notes TEXT DEFAULT '',
+  given_by_id INTEGER REFERENCES staff(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Facility beds
+CREATE TABLE IF NOT EXISTS facility_beds (
+  id SERIAL PRIMARY KEY,
+  bed_id TEXT UNIQUE NOT NULL,
+  ward TEXT DEFAULT 'A',
+  type TEXT DEFAULT 'General',
+  status TEXT DEFAULT 'available',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Facility insurance
+CREATE TABLE IF NOT EXISTS facility_insurance (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  policy_types TEXT DEFAULT '',
+  contact TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Direct messages (network)
+CREATE TABLE IF NOT EXISTS network_dms (
+  id SERIAL PRIMARY KEY,
+  sender_id INTEGER REFERENCES staff(id),
+  receiver_id INTEGER REFERENCES staff(id),
+  text TEXT NOT NULL,
+  read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

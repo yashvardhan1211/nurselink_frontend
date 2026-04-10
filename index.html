@@ -3264,11 +3264,11 @@ function renderChatTab(id, p) {
         </div>
       `).join('')}
     </div>
-    ${((role==='Doctor'||role==='Nurse') && !!p.nurseId && !!p.doctorId) ? `
+    ${((role==='Doctor'||role==='Nurse')) ? `
     <div class="flex gap-2">
       <input class="form-control" id="chat-input-${id}" placeholder="Type message..." style="flex:1" onkeydown="if(event.key==='Enter')sendChat('${id}')">
       <button class="btn btn-primary" onclick="sendChat('${id}')">Send</button>
-    </div>` : ((role==='Doctor'||role==='Nurse') && (!p.nurseId || !p.doctorId)) ? '<div class="alert-item warning">Team is not fully assigned. Chat disabled.</div>' : '<div class="text-muted text-sm">Only doctors and nurses can chat directly.</div>'}
+    </div>` : '<div class="text-muted text-sm">Only doctors and nurses can chat directly.</div>'}
   `;
 }
 

@@ -1585,7 +1585,7 @@ function renderMain() {
     mar: renderMARPage,
     notes: renderNotesPage,
     pharmacy: renderPharmacyPage,
-    inventory: () => { main.innerHTML = `<div class="section-title">Inventory Management</div><p class="text-muted">Feature coming soon.</p>`; },
+    inventory: renderInventoryPage,
     labtech: renderLabTechPage,
     results: renderResultsPage,
     staff: renderStaffPage,
@@ -1994,7 +1994,7 @@ function opdAssignDoctor(docId) {
   const p = S.patients.find(x => String(x.id) === String(S.activePatientId));
   if (!p) return;
   p.doctorId = docId;
-  if (S.IS_LIVE || window.IS_LIVE) apiPatch('/patients/' + p.id, { doctor_id: docId });
+  if (IS_LIVE) apiPatch('/patients/' + p.id, { doctor_id: docId });
   try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
   // Re-run triage to refresh the cards with new selection highlighted
   runOPDTriage();
@@ -2759,10 +2759,7 @@ function finaliseConsult(id) {
     const q = S.opdQueue.find(x=>x.pid===id);
     if (q) {
       q.status = 'Done';
-      // Update backend queue status if queue entry has a real UUID id
-      if (IS_LIVE && q.id && !String(q.id).startsWith('Q')) {
-        apiPatch('/queue/' + q.id + '/status', { status: 'Done' });
-      }
+      if (IS_LIVE && q.id) apiPatch('/queue/' + q.id + '/status', { status: 'Done' }).catch(()=>{});
     }
   }
   closeModal();
@@ -3225,11 +3222,11 @@ function renderChatTab(id, p) {
         </div>
       `).join('')}
     </div>
-    ${((role==='Doctor'||role==='Nurse') && !!p.nurseId && !!p.doctorId) ? `
+    ${(role==='Doctor'||role==='Nurse') ? `
     <div class="flex gap-2">
       <input class="form-control" id="chat-input-${id}" placeholder="Type message..." style="flex:1" onkeydown="if(event.key==='Enter')sendChat('${id}')">
       <button class="btn btn-primary" onclick="sendChat('${id}')">Send</button>
-    </div>` : ((role==='Doctor'||role==='Nurse') && (!p.nurseId || !p.doctorId)) ? '<div class="alert-item warning">Team is not fully assigned. Chat disabled.</div>' : '<div class="text-muted text-sm">Only doctors and nurses can chat directly.</div>'}
+    </div>` : '<div class="text-muted text-sm">Only doctors and nurses can chat directly.</div>'}
   `;
 }
 
@@ -6733,26 +6730,40 @@ function toggleIntegration(idx, btn, name) {
   showToast(`${name} ${isConnected?'disconnected':'connected'}`);
 }
 
-function renderAuditPage() {
+async function renderAuditPage() {
   const main = document.getElementById('main');
-  const logs = [
-    { time:ts(), user:'Dr. Arjun Mehta', action:'Added prescription: Inj. Labetalol for Ramesh Gupta', ip:'10.0.1.45' },
-    { time:ts(), user:'Priya Sharma', action:'Recorded vitals for Ramesh Gupta — BP 185/112', ip:'10.0.1.67' },
-    { time:ts(), user:'Dr. Sunita Rao', action:'Ordered Blood Culture (STAT) for Lakshmi Devi', ip:'10.0.1.51' },
-    { time:ts(), user:'Anand Kumar', action:'Entered ECG result for Ramesh Gupta — Abnormal', ip:'10.0.1.88' },
-  ];
+  main.innerHTML = '<div class="section-title">Audit Log</div><div class="text-muted">Loading...</div>';
+  let logs = [];
+  if (IS_LIVE) {
+    const res = await apiGet('/audit').catch(() => null);
+    if (res && Array.isArray(res)) {
+      logs = res.map(l => ({
+        time: new Date(l.created_at).toLocaleString('en-IN'),
+        user: l.user_name || '—',
+        role: l.user_role || '',
+        action: l.action,
+        entity: l.entity_type ? `${l.entity_type} #${l.entity_id||''}` : '',
+        ip: l.ip_address || '—',
+      }));
+    }
+  }
+  if (logs.length === 0) {
+    logs = S.notifications.slice(0,20).map(n => ({ time: n.time, user: n.role, role: n.role, action: n.title + ': ' + n.body, entity: '', ip: 'local' }));
+  }
   main.innerHTML = `
     <div class="section-title">Audit Log</div>
-    <div class="section-sub">All system actions are logged</div>
+    <div class="section-sub">All system actions are logged · ${logs.length} entries</div>
     <div class="card">
       <table class="data-table">
-        <thead><tr><th>Time</th><th>User</th><th>Action</th><th>IP</th></tr></thead>
+        <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>IP</th></tr></thead>
         <tbody>
-          ${logs.map(l=>`<tr>
-            <td class="mono">${l.time}</td>
-            <td class="fw-600">${l.user}</td>
+          ${logs.length===0?'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No audit entries yet</td></tr>':
+          logs.map(l=>`<tr>
+            <td class="mono" style="font-size:11px;white-space:nowrap">${l.time}</td>
+            <td class="fw-600">${l.user} <span class="text-muted" style="font-size:10px">${l.role}</span></td>
             <td>${l.action}</td>
-            <td class="mono">${l.ip}</td>
+            <td class="text-muted" style="font-size:11px">${l.entity}</td>
+            <td class="mono" style="font-size:11px">${l.ip}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -7983,6 +7994,130 @@ function renderDoctorDashboard() {
   }, 50);
 }
 
+// INVENTORY PAGE
+async function renderInventoryPage() {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="section-title">Inventory Management</div><div class="text-muted">Loading...</div>';
+  let items = S._inventory || [];
+  if (IS_LIVE) {
+    const res = await apiGet('/inventory').catch(() => null);
+    if (res && Array.isArray(res)) { items = res; S._inventory = res; }
+  }
+  const categories = [...new Set(items.map(i => i.category || 'General'))].sort();
+  const lowStock = items.filter(i => (i.quantity||0) <= (i.min_quantity||10));
+  main.innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="section-title">Inventory Management</div>
+        <div class="section-sub">${items.length} items · ${lowStock.length} low stock</div>
+      </div>
+      <button class="btn btn-primary" onclick="showAddInventoryModal()">➕ Add Item</button>
+    </div>
+    ${lowStock.length > 0 ? `<div style="background:#FFEBEE;border:1px solid var(--red);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--red)">⚠ <strong>${lowStock.length} item${lowStock.length>1?'s':''} below minimum stock:</strong> ${lowStock.map(i=>i.name).join(', ')}</div>` : ''}
+    ${items.length === 0 ? '<div class="card"><div class="card-body text-muted" style="text-align:center;padding:40px">No inventory items yet. Click Add Item to get started.</div></div>' :
+    categories.map(cat => {
+      const catItems = items.filter(i => (i.category||'General') === cat);
+      return `<div class="card mb-4">
+        <div class="card-header"><h3>${cat} <span class="badge badge-indigo">${catItems.length}</span></h3></div>
+        <div style="overflow-x:auto"><table class="data-table">
+          <thead><tr><th>Item</th><th>Unit</th><th>Qty</th><th>Min</th><th>Unit Cost</th><th>Supplier</th><th>Expiry</th><th>Status</th><th></th></tr></thead>
+          <tbody>${catItems.map(item => {
+            const isLow = (item.quantity||0) <= (item.min_quantity||10);
+            const isOut = (item.quantity||0) === 0;
+            return `<tr>
+              <td class="fw-600">${item.name}</td><td>${item.unit||'units'}</td>
+              <td class="${isOut?'critical-val':isLow?'warn-val':''} fw-600">${item.quantity||0}</td>
+              <td class="text-muted">${item.min_quantity||10}</td>
+              <td class="mono">₹${Number(item.unit_cost||0).toLocaleString('en-IN')}</td>
+              <td class="text-muted">${item.supplier||'—'}</td>
+              <td class="mono text-muted" style="font-size:11px">${item.expiry_date?new Date(item.expiry_date).toLocaleDateString('en-IN'):'—'}</td>
+              <td><span class="badge ${isOut?'badge-red':isLow?'badge-amber':'badge-green'}">${isOut?'OUT':isLow?'LOW':'OK'}</span></td>
+              <td>
+                <button class="btn btn-outline btn-sm" onclick="showEditInventoryModal(${item.id})">✏️</button>
+                <button class="btn btn-outline btn-sm" style="color:var(--red)" onclick="deleteInventoryItem(${item.id})">🗑</button>
+              </td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+function showAddInventoryModal(existing) {
+  const isEdit = !!existing;
+  showModal(`<div class="modal">
+    <div class="modal-header"><h2>${isEdit?'✏️ Edit':'➕ Add'} Inventory Item</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Item Name *</label><input class="form-control" id="inv-name" value="${existing?.name||''}" placeholder="e.g. Paracetamol 500mg"></div>
+        <div class="form-group"><label class="form-label">Category</label>
+          <select class="form-control" id="inv-cat">${['Medicines','Consumables','Equipment','Lab Reagents','Surgical','IV Fluids','General'].map(c=>`<option ${(existing?.category||'Medicines')===c?'selected':''}>${c}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Unit</label><input class="form-control" id="inv-unit" value="${existing?.unit||'units'}"></div>
+        <div class="form-group"><label class="form-label">Current Quantity *</label><input class="form-control" id="inv-qty" type="number" value="${existing?.quantity||0}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Min Stock Level</label><input class="form-control" id="inv-min" type="number" value="${existing?.min_quantity||10}"></div>
+        <div class="form-group"><label class="form-label">Unit Cost (₹)</label><input class="form-control" id="inv-cost" type="number" value="${existing?.unit_cost||0}" step="0.01"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Supplier</label><input class="form-control" id="inv-supplier" value="${existing?.supplier||''}"></div>
+        <div class="form-group"><label class="form-label">Expiry Date</label><input class="form-control" id="inv-expiry" type="date" value="${existing?.expiry_date?new Date(existing.expiry_date).toISOString().split('T')[0]:''}"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInventoryItem(${existing?.id||'null'})">${isEdit?'Save Changes':'Add Item'}</button>
+    </div>
+  </div>`);
+}
+
+async function saveInventoryItem(id) {
+  const payload = {
+    name: document.getElementById('inv-name').value.trim(),
+    category: document.getElementById('inv-cat').value,
+    unit: document.getElementById('inv-unit').value.trim()||'units',
+    quantity: parseInt(document.getElementById('inv-qty').value)||0,
+    min_quantity: parseInt(document.getElementById('inv-min').value)||10,
+    unit_cost: parseFloat(document.getElementById('inv-cost').value)||0,
+    supplier: document.getElementById('inv-supplier').value.trim()||null,
+    expiry_date: document.getElementById('inv-expiry').value||null,
+  };
+  if (!payload.name) { alert('Item name is required'); return; }
+  closeModal();
+  if (IS_LIVE) {
+    const res = id ? await apiPatch('/inventory/'+id, payload) : await apiPost('/inventory', payload);
+    if (res) showToast(id?'Item updated ✓':'Item added ✓');
+    else showToast('Server sync failed','warn');
+  } else {
+    if (!S._inventory) S._inventory=[];
+    if (id) { const idx=S._inventory.findIndex(i=>i.id===id); if(idx>=0) S._inventory[idx]={...S._inventory[idx],...payload}; }
+    else S._inventory.push({ id:Date.now(), ...payload });
+    showToast(id?'Item updated':'Item added');
+  }
+  renderInventoryPage();
+}
+
+async function showEditInventoryModal(id) {
+  const item = (S._inventory||[]).find(i=>i.id===id);
+  if (item) { showAddInventoryModal(item); return; }
+  if (IS_LIVE) {
+    const res = await apiGet('/inventory').catch(()=>null);
+    if (res) { S._inventory=res; const found=res.find(i=>i.id===id); if(found) showAddInventoryModal(found); }
+  }
+}
+
+async function deleteInventoryItem(id) {
+  if (!confirm('Delete this inventory item?')) return;
+  if (IS_LIVE) await fetch(`${API_BASE}/inventory/${id}`,{method:'DELETE',headers:{Authorization:'Bearer '+API_TOKEN}}).catch(()=>{});
+  if (S._inventory) S._inventory=S._inventory.filter(i=>i.id!==id);
+  showToast('Item deleted');
+  renderInventoryPage();
+}
+
 // BILLING PAGE
 function renderBillingPage() {
   const main = document.getElementById('main');
@@ -8106,7 +8241,7 @@ function generateBill(lock) {
   const advance = parseFloat(document.getElementById('bill-advance')?.value)||0;
   const insurance = parseFloat(document.getElementById('bill-insurance')?.value)||0;
   const net = Math.max(0, gross - discount - advance - insurance);
-  S.bills[pid] = {
+  const billData = {
     pid, patientName:p.name, ehrId:p.ehrId, items:[...window._billItems],
     gross, discount, advance, insurance, net,
     insName:document.getElementById('bill-ins-name')?.value,
@@ -8114,13 +8249,46 @@ function generateBill(lock) {
     claim:document.getElementById('bill-claim')?.value,
     locked:lock, generatedAt:now(), generatedBy:getCurrentStaffName()
   };
+  S.bills[pid] = billData;
   showToast(lock ? `Bill locked ✓ — Net payable ₹${net.toLocaleString('en-IN')}` : 'Draft bill saved');
   save();
+  if (IS_LIVE) {
+    const payload = {
+      patient_id: pid, ehr_id: p.ehrId, patient_name: p.name,
+      items: window._billItems, gross, discount, advance,
+      insurance_deduction: insurance, net,
+      insurance_company: billData.insName||null,
+      insurance_policy: billData.policy||null,
+      insurance_claim: billData.claim||null,
+      locked: lock,
+    };
+    if (billData._serverId) {
+      apiPatch('/bills/' + billData._serverId, payload).then(r => { if (r) billData._serverId = r.id; });
+    } else {
+      apiPost('/bills', payload).then(r => { if (r) { billData._serverId = r.id; S.bills[pid] = billData; try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {} } });
+    }
+  }
 }
 
-function renderBillsListPage() {
+async function renderBillsListPage() {
   const main = document.getElementById('main');
-  const bills = Object.values(S.bills||{});
+  main.innerHTML = '<div class="section-title">Bills</div><div class="text-muted">Loading...</div>';
+  let bills = Object.values(S.bills||{});
+  if (IS_LIVE) {
+    const serverBills = await apiGet('/bills').catch(() => null);
+    if (serverBills && Array.isArray(serverBills)) {
+      bills = serverBills.map(b => ({
+        pid: String(b.patient_id), _serverId: b.id,
+        ehrId: b.ehr_id, patientName: b.patient_name,
+        items: typeof b.items === 'string' ? JSON.parse(b.items) : (b.items||[]),
+        gross: b.gross, discount: b.discount, advance: b.advance,
+        insurance: b.insurance_deduction, net: b.net,
+        insName: b.insurance_company, policy: b.insurance_policy, claim: b.insurance_claim,
+        locked: b.locked, generatedAt: new Date(b.generated_at).toLocaleString('en-IN'),
+      }));
+      bills.forEach(b => { if (!S.bills) S.bills={}; S.bills[b.pid] = b; });
+    }
+  }
   main.innerHTML = `
     <div class="section-title">Bills</div>
     <div class="section-sub">${bills.length} bill(s) generated</div>
@@ -8133,7 +8301,7 @@ function renderBillsListPage() {
             <td class="mono">${b.ehrId||'—'}</td>
             <td class="fw-600">${b.patientName}</td>
             <td class="mono">${b.generatedAt}</td>
-            <td class="mono fw-600">₹${b.net?.toLocaleString('en-IN')}</td>
+            <td class="mono fw-600">₹${Number(b.net||0).toLocaleString('en-IN')}</td>
             <td><span class="badge ${b.locked?'badge-red':'badge-amber'}">${b.locked?'LOCKED':'DRAFT'}</span></td>
             <td><button class="btn btn-outline btn-sm" onclick="viewBillSummary('${b.pid}')">View</button></td>
           </tr>`).join('')}
@@ -8420,9 +8588,7 @@ function callPatient(pid) {
   const q = S.opdQueue.find(x=>x.pid===pid);
   if (q) {
     q.status = 'Called';
-    if (IS_LIVE && q.id && !String(q.id).startsWith('Q')) {
-      apiPatch('/queue/' + q.id + '/status', { status: 'Called' });
-    }
+    if (IS_LIVE && q.id) apiPatch('/queue/' + q.id + '/status', { status: 'Called' }).catch(()=>{});
     save();
     renderQueuePage();
   }
@@ -8433,9 +8599,7 @@ function markQueueDone(pid) {
   const q = S.opdQueue.find(x=>x.pid===pid);
   if (q) {
     q.status = 'Done';
-    if (IS_LIVE && q.id && !String(q.id).startsWith('Q')) {
-      apiPatch('/queue/' + q.id + '/status', { status: 'Done' });
-    }
+    if (IS_LIVE && q.id) apiPatch('/queue/' + q.id + '/status', { status: 'Done' }).catch(()=>{});
     save();
     renderQueuePage();
   }
@@ -9403,7 +9567,7 @@ function renderAIResult(panel, markdown, name) {
     <div class="card">
       <div class="card-header" style="background:var(--navy);color:white">
         <h3> AI Analysis — ${name}</h3>
-        <button onclick="printAIReport()" class="btn btn-ghost btn-sm">ðŸ–¨ Print</button>
+        <button onclick="printAIReport()" class="btn btn-ghost btn-sm">Print</button>
       </div>
       <div class="card-body" id="ai-report-content" style="line-height:1.7;font-size:13px">
         ${html}
