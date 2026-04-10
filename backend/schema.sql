@@ -154,3 +154,37 @@ INSERT INTO staff(name,role,department,specialty,emp_id,email,password_hash) VAL
   ('Nurse Priya','Nurse','Ward A','','N-001','priya@nurselink.in', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
   ('Admin User','Admin','Administration','','A-001','admin@nurselink.in', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi')
 ON CONFLICT(email) DO NOTHING;
+
+-- Network tables
+CREATE TABLE IF NOT EXISTS network_posts (
+  id SERIAL PRIMARY KEY,
+  author_id INTEGER REFERENCES staff(id),
+  text TEXT NOT NULL,
+  tag TEXT DEFAULT 'Discussion',
+  case_label TEXT,
+  case_history JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS network_post_likes (
+  post_id INTEGER REFERENCES network_posts(id) ON DELETE CASCADE,
+  staff_id INTEGER REFERENCES staff(id),
+  PRIMARY KEY(post_id, staff_id)
+);
+
+CREATE TABLE IF NOT EXISTS network_post_replies (
+  id SERIAL PRIMARY KEY,
+  post_id INTEGER REFERENCES network_posts(id) ON DELETE CASCADE,
+  author_id INTEGER REFERENCES staff(id),
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS network_dms (
+  id SERIAL PRIMARY KEY,
+  sender_id INTEGER REFERENCES staff(id),
+  receiver_id INTEGER REFERENCES staff(id),
+  text TEXT NOT NULL,
+  read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

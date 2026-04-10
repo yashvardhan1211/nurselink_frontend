@@ -62,9 +62,36 @@ app.post('/api/staff', auth, async (req, res) => {
     const hash = await bcrypt.hash(password || 'password123', 10);
     const r = await pool.query(
       'INSERT INTO staff(name,role,department,specialty,emp_id,email,password_hash) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      [name, role, department||'', specialty||'', emp_id||'', email||'', hash]
+      [name, role, department||'', specialty||department||'', emp_id||'', email||'', hash]
     );
     res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/staff/:id', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const { name, role, department, specialty, emp_id, password } = req.body;
+  try {
+    const fields = [], vals = [];
+    let i = 1;
+    if (name)       { fields.push(`name=$${i++}`);       vals.push(name); }
+    if (role)       { fields.push(`role=$${i++}`);       vals.push(role); }
+    if (department) { fields.push(`department=$${i++}`); vals.push(department); }
+    if (specialty)  { fields.push(`specialty=$${i++}`);  vals.push(specialty); }
+    if (emp_id)     { fields.push(`emp_id=$${i++}`);     vals.push(emp_id); }
+    if (password)   { const h = await bcrypt.hash(password, 10); fields.push(`password_hash=$${i++}`); vals.push(h); }
+    if (!fields.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    const r = await pool.query(`UPDATE staff SET ${fields.join(',')} WHERE id=$${i} RETURNING *`, vals);
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/staff/:id', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    await pool.query('DELETE FROM staff WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -279,9 +306,11 @@ app.patch('/api/labs/:id/result', auth, async (req, res) => {
   try {
     const status = req.body.status || 'Result Available';
     const result = req.body.result !== undefined ? req.body.result : null;
+    const report_url = req.body.report_url || null;
+    const report_name = req.body.report_name || null;
     const r = await pool.query(
-      'UPDATE lab_orders SET result=$1,status=$2 WHERE id=$3 RETURNING *',
-      [result, status, req.params.id]
+      'UPDATE lab_orders SET result=$1,status=$2,report_url=$3,report_name=$4 WHERE id=$5 RETURNING *',
+      [result, status, report_url, report_name, req.params.id]
     );
     io.emit('labs:result', { ...r.rows[0] });
     res.json(r.rows[0]);
@@ -409,6 +438,87 @@ app.post('/api/mar', auth, async (req, res) => {
     );
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── NETWORK ───────────────────────────────────────────────────────────────────
+app.get('/api/network/posts', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(`
+      SELECT p.*, s.name as author_name, s.department as author_dept,
+        (SELECT COUNT(*) FROM network_post_likes l WHERE l.post_id=p.id) as like_count,
+        (SELECT COUNT(*) FROM network_post_replies r WHERE r.post_id=p.id) as reply_count
+      FROM network_posts p
+      LEFT JOIN staff s ON s.id=p.author_id
+      ORDER BY p.created_at DESC LIMIT 50`);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/network/posts', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  const { text, tag, case_label, case_history } = req.body;
+  try {
+    const r = await pool.query(
+      'INSERT INTO network_posts(author_id,text,tag,case_label,case_history) VALUES($1,$2,$3,$4,$5) RETURNING *',
+      [req.user.id, text, tag||'Discussion', case_label||null, case_history ? JSON.stringify(case_history) : null]
+    );
+    io.emit('network:post', { ...r.rows[0], author_name: req.user.name });
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/network/posts/:id/like', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const exists = await pool.query('SELECT 1 FROM network_post_likes WHERE post_id=$1 AND staff_id=$2', [req.params.id, req.user.id]);
+    if (exists.rows.length) {
+      await pool.query('DELETE FROM network_post_likes WHERE post_id=$1 AND staff_id=$2', [req.params.id, req.user.id]);
+    } else {
+      await pool.query('INSERT INTO network_post_likes(post_id,staff_id) VALUES($1,$2)', [req.params.id, req.user.id]);
+    }
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/network/posts/:id/replies', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const r = await pool.query(
+      'INSERT INTO network_post_replies(post_id,author_id,text) VALUES($1,$2,$3) RETURNING *',
+      [req.params.id, req.user.id, req.body.text]
+    );
+    io.emit('network:reply', { ...r.rows[0], author_name: req.user.name, post_id: req.params.id });
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/network/dms/:peerId', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT d.*, s.name as sender_name FROM network_dms d
+       LEFT JOIN staff s ON s.id=d.sender_id
+       WHERE (d.sender_id=$1 AND d.receiver_id=$2) OR (d.sender_id=$2 AND d.receiver_id=$1)
+       ORDER BY d.created_at ASC`,
+      [req.user.id, req.params.peerId]
+    );
+    // Mark as read
+    await pool.query('UPDATE network_dms SET read=true WHERE receiver_id=$1 AND sender_id=$2', [req.user.id, req.params.peerId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/network/dms/:toId', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const r = await pool.query(
+      'INSERT INTO network_dms(sender_id,receiver_id,text) VALUES($1,$2,$3) RETURNING *',
+      [req.user.id, req.params.toId, req.body.text]
+    );
+    io.emit('network:dm', { ...r.rows[0], sender_name: req.user.name });
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── SOCKET ───────────────────────────────────────────────────────────────────

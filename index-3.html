@@ -998,6 +998,44 @@ function connectSocket() {
         if (tabDiv && p) tabDiv.innerHTML = renderChatTab(pid, p);
       }
     });
+    socket.on('labs:result', data => {
+      const pid = String(data.patient_id);
+      if (!S.labOrders[pid]) S.labOrders[pid] = [];
+      const existing = S.labOrders[pid].find(l => String(l.id) === String(data.id));
+      const mapped = {
+        id: String(data.id),
+        test: data.test_name,
+        category: data.category || '',
+        priority: data.priority || 'Routine',
+        status: data.status || 'Result Available',
+        result: data.result || '',
+        resultStatus: data.result_status || '',
+        reportUrl: data.report_url || null,
+        reportName: data.report_name || null,
+        orderedBy: data.ordered_by_name || 'Doctor',
+        time: data.created_at ? new Date(data.created_at).toLocaleString('en-IN') : ts(),
+        patientId: pid,
+      };
+      if (existing) { Object.assign(existing, mapped); }
+      else { S.labOrders[pid].unshift(mapped); }
+      // Notify doctor
+      const p = S.patients.find(x => x.id === pid);
+      if (p) {
+        S.notifications.unshift({ id:'N'+Date.now(), role:'Doctor', title:`Lab Result: ${mapped.test}`, body:`${p.name} — ${mapped.resultStatus}: ${(mapped.result||'').substring(0,60)}`, time:ts(), read:false });
+        renderNotifBadge();
+      }
+      // Refresh labs tab if currently viewing this patient
+      if (S.activePatientId === pid) {
+        const tabDiv = document.getElementById('tab-content');
+        if (tabDiv && p) tabDiv.innerHTML = renderLabsTab(pid, p);
+      }
+      // Refresh patient labs page if patient portal is open
+      if (S.currentRole === 'Patient') {
+        const activeView = S.activeNavItem[S.currentRole] || getDefaultView();
+        if (activeView === 'patient-labs') renderPatientLabsPage();
+      }
+      try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
+    });
     socket.on('patient:admitted', p => { refreshLiveData(); });
     socket.on('queue:update', () => { refreshLiveData(); });
 
@@ -5767,17 +5805,22 @@ async function renderLabTechPage() {
         priority: l.priority || 'Routine',
         status: l.status || 'Pending',
         result: l.result || '',
+        resultStatus: l.result_status || '',
+        reportUrl: l.report_url || null,
+        reportName: l.report_name || null,
         orderedBy: l.ordered_by_name || 'Doctor',
         time: new Date(l.created_at).toLocaleString('en-IN'),
         patientName: l.patient_name || '—',
         ehrId: l.ehr_id || '—',
         patientId: String(l.patient_id),
       })).filter(l => l.status !== 'Result Available');
-      // Also update local state
-      allOrders.forEach(l => {
-        if (!S.labOrders[l.patientId]) S.labOrders[l.patientId] = [];
-        if (!S.labOrders[l.patientId].find(x => String(x.id) === l.id))
-          S.labOrders[l.patientId].push(l);
+      // Also update local state — include ALL labs (even completed) for report access
+      serverLabs.forEach(l => {
+        const pid = String(l.patient_id);
+        if (!S.labOrders[pid]) S.labOrders[pid] = [];
+        const existing = S.labOrders[pid].find(x => String(x.id) === String(l.id));
+        const mapped = { id:String(l.id), test:l.test_name, category:l.category||'', priority:l.priority||'Routine', status:l.status||'Pending', result:l.result||'', resultStatus:l.result_status||'', reportUrl:l.report_url||null, reportName:l.report_name||null, orderedBy:l.ordered_by_name||'Doctor', time:new Date(l.created_at).toLocaleString('en-IN'), patientName:l.patient_name||'—', ehrId:l.ehr_id||'—', patientId:pid };
+        if (existing) { Object.assign(existing, mapped); } else { S.labOrders[pid].push(mapped); }
       });
     }
   } else {
@@ -9311,8 +9354,40 @@ function renderPatientRxPage() {
     </div>`;
 }
 
-function renderPatientLabsPage() {
+async function renderPatientLabsPage() {
   const main = document.getElementById('main');
+
+  // Show loading state immediately
+  main.innerHTML = `
+    <div class="section-title">🔬 My Lab Reports</div>
+    <div class="section-sub">Lab results and uploaded reports</div>
+    <div class="card"><div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:12px">⏳</div>
+      <div style="font-weight:600">Loading lab reports...</div>
+    </div></div>`;
+
+  // In live mode, fetch fresh lab data for all patients to get latest report_url
+  if (IS_LIVE) {
+    const serverLabs = await apiGet('/labs').catch(() => null);
+    if (serverLabs && Array.isArray(serverLabs)) {
+      serverLabs.forEach(l => {
+        const pid = String(l.patient_id);
+        if (!S.labOrders[pid]) S.labOrders[pid] = [];
+        const existing = S.labOrders[pid].find(x => String(x.id) === String(l.id));
+        const mapped = {
+          id: String(l.id), test: l.test_name, category: l.category || '',
+          priority: l.priority || 'Routine', status: l.status || 'Pending',
+          result: l.result || '', resultStatus: l.result_status || '',
+          reportUrl: l.report_url || null, reportName: l.report_name || null,
+          orderedBy: l.ordered_by_name || 'Doctor',
+          time: new Date(l.created_at).toLocaleString('en-IN'),
+          patientName: l.patient_name || '—', patientId: pid,
+        };
+        if (existing) { Object.assign(existing, mapped); }
+        else { S.labOrders[pid].push(mapped); }
+      });
+    }
+  }
 
   // Collect all lab orders with results across all patients
   const allLabs = [];
