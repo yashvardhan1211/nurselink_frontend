@@ -1941,7 +1941,7 @@ function runOPDTriage() {
     <div id="opd-groq-insight" style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:12px">
       <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
       <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">
-        <div style="font-size:20px;margin-bottom:6px">⏳</div>Analysing chief complaint...
+        <div style="font-size:20px;margin-bottom:6px">💬</div>Enter chief complaint above to get AI clinical insight
       </div>
     </div>
     ${S.currentRole !== 'Doctor' ? `
@@ -1950,18 +1950,31 @@ function runOPDTriage() {
       <div style="padding:12px">${docCards}</div>
     </div>` : ''}`;
 
-  // Call Groq AI for clinical insight if chief complaint is present
-  if (cc.trim()) {
-    runGroqTriageInsight(cc, sbp, dbp, hr, spo2, tempF, glucose, result);
+  // Call Groq AI for clinical insight — debounced so it fires after user stops typing
+  clearTimeout(window._groqTriageTimer);
+  const ccVal = cc.trim();
+  if (ccVal) {
+    window._groqTriageTimer = setTimeout(() => {
+      runGroqTriageInsight(ccVal, sbp, dbp, hr, spo2, tempF, glucose, result);
+    }, 800); // wait 800ms after last keystroke
   } else {
     const insightEl = document.getElementById('opd-groq-insight');
-    if (insightEl) insightEl.style.display = 'none';
+    if (insightEl) insightEl.innerHTML = `
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+      <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">Enter chief complaint to get AI clinical insight</div>`;
   }
 }
 
 async function runGroqTriageInsight(cc, sbp, dbp, hr, spo2, tempF, glucose, triageResult) {
   const insightEl = document.getElementById('opd-groq-insight');
   if (!insightEl) return;
+
+  // Show loading
+  insightEl.innerHTML = `
+    <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+    <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">
+      <div style="font-size:20px;margin-bottom:6px;animation:spin 1s linear infinite;display:inline-block">⚙️</div><br>Analysing with Groq AI...
+    </div>`;
 
   const doctorList = S.staff.filter(s => s.role === 'Doctor')
     .map(d => `${d.name} (${d.specialty||d.dept||'General Medicine'})`)
