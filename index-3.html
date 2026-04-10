@@ -1969,6 +1969,10 @@ async function runGroqTriageInsight(cc, sbp, dbp, hr, spo2, tempF, glucose, tria
   const insightEl = document.getElementById('opd-groq-insight');
   if (!insightEl) return;
 
+  // Use key directly — avoids hoisting issues with const
+  const _key = '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';
+  const _model = 'llama-3.3-70b-versatile';
+
   // Show loading
   insightEl.innerHTML = `
     <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
@@ -2000,11 +2004,12 @@ Respond in exactly this JSON format (no markdown, no extra text):
 }`;
 
   try {
+  
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _key },
       body: JSON.stringify({
-        model: GROQ_MODEL,
+        model: _model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         max_tokens: 400
@@ -4874,7 +4879,7 @@ function liveTriageUpdate() {
 
     ? result.flags.slice(0,4).map(f=>`<div style="font-size:11px;color:var(--red);margin-top:3px">!  ${f}</div>`).join('')
 
-    : `<div style="font-size:11px;color:var(--success)">âœ“ No critical flags</div>`;
+    : `<div style="font-size:11px;color:var(--success)"> No critical flags</div>`;
 
 
 
@@ -4888,7 +4893,7 @@ function liveTriageUpdate() {
 
     </div>
 
-    <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px">ðŸ¥ ${result.specialty}</div>
+    <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px">${result.specialty}</div>
 
     ${flagsHtml}
 
@@ -8409,7 +8414,7 @@ function runTriage() {
 
   const flagsHtml = result.flags.length
     ? result.flags.map(f => `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--red)">! </span>${f}</div>`).join('')
-    : `<div style="font-size:12px;color:var(--success)">âœ“ No critical flags detected</div>`;
+    : `<div style="font-size:12px;color:var(--success)"> No critical flags detected</div>`;
 
   const docHtml = assignedDoc ? `
     <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--panel);border-radius:8px;margin-top:12px">
@@ -8417,7 +8422,7 @@ function runTriage() {
       <div>
         <div style="font-weight:700">${assignedDoc.name}</div>
         <div style="font-size:12px;color:var(--text-muted)">${assignedDoc.specialty||assignedDoc.department||'General Medicine'}</div>
-        <div style="font-size:11px;color:var(--teal);margin-top:2px">âœ“ Recommended Assignment</div>
+        <div style="font-size:11px;color:var(--teal);margin-top:2px"> Recommended Assignment</div>
       </div>
     </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px">No doctors available in system.</div>`;
 
@@ -8434,7 +8439,7 @@ function runTriage() {
         </div>
         <div style="margin-bottom:16px">
           <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Recommended Specialty</div>
-          <div style="font-size:18px;font-weight:700;color:var(--navy)">ðŸ¥ ${result.specialty}</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">${result.specialty}</div>
         </div>
         <div style="margin-bottom:16px">
           <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Clinical Flags</div>
