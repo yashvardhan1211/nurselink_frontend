@@ -4637,8 +4637,7 @@ function renderAdmitForm() {
           <div style="background:var(--navy);color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
             <span style="font-weight:700;font-size:13px">👨‍⚕️ Assign Doctor</span>
             <span id="admit-doc-specialty" style="font-size:11px;opacity:0.7"></span>
-          </div>
-          <div style="padding:12px;display:flex;flex-direction:column;gap:8px" id="admit-doc-list">
+          </div>          <div style="padding:12px;display:flex;flex-direction:column;gap:8px" id="admit-doc-list">
             ${doctorCardsHtml}
           </div>
           <input type="hidden" id="ad-doc" value="">
@@ -4829,23 +4828,19 @@ async function submitAdmit() {
 
   // IPD-only fields
   const bed = isIPD ? document.getElementById('ad-bed')?.value : '';
-  let docId = document.getElementById('ad-doc')?.value || (S.staff.find(s=>s.role==='Doctor')?.id || '');
+  let docId = document.getElementById('ad-doc')?.value || '';
   let nurseId = isIPD ? document.getElementById('ad-nurse')?.value : '';
   const admType = isIPD ? document.getElementById('ad-type')?.value : 'OPD Consultation';
 
-  if (docId === 'auto') {
-    const docs = S.staff.filter(s=>s.role==='Doctor');
-    if(docs.length) docId = docs.sort((a,b)=>S.patients.filter(p=>p.doctorId===a.id && p.status==='Active').length - S.patients.filter(p=>p.doctorId===b.id && p.status==='Active').length)[0].id;
-    else docId = '';
-  }
-
-  let docId = document.getElementById('ad-doc')?.value || '';
   // Doctor role: auto-assign to themselves
   if (S.currentRole === 'Doctor') {
-    const me = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : S.staff.find(s=>s.role==='Doctor')?.id || '';
-    docId = me;
+    docId = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : S.staff.find(s=>s.role==='Doctor')?.id || '';
   }
-  if (!docId) docId = S.staff.find(s=>s.role==='Doctor')?.id || '';
+  if (docId === 'auto' || !docId) {
+    const docs = S.staff.filter(s=>s.role==='Doctor');
+    if (docs.length) docId = docs.sort((a,b)=>S.patients.filter(p=>p.doctorId===a.id && p.status==='Active').length - S.patients.filter(p=>p.doctorId===b.id && p.status==='Active').length)[0].id;
+  }
+  if (nurseId === 'auto') {
     const nrss = S.staff.filter(s=>s.role==='Nurse');
     if(nrss.length) nurseId = nrss.sort((a,b)=>S.patients.filter(p=>p.nurseId===a.id && p.status==='Active').length - S.patients.filter(p=>p.nurseId===b.id && p.status==='Active').length)[0].id;
     else nurseId = '';
@@ -4995,7 +4990,7 @@ async function submitAdmit() {
   try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
   showToast(isIPD ? `${name} admitted` : `${name} consultation saved`);
   renderAll();
-}
+
 
 // ALERTS PAGE
 function renderAlertsPage() {
