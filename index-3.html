@@ -2701,6 +2701,7 @@ function renderOverviewTab(id, p) {
         <button class="btn btn-primary" onclick="showDoctorOrderModal('${id}')">📋 Consult + Prescribe + Investigate</button>
         <button class="btn btn-primary" onclick="showRecordVitalsModal('${id}')">📊 Record Vitals</button>
         <button class="btn btn-outline" onclick="setTab('${id}','chat')">💬 Chat with Nurse</button>
+        <button class="btn btn-outline" onclick="showAddDoctorModal('${id}')">👨‍⚕️ Add Doctor</button>
         <button class="btn btn-outline" style="border-color:var(--teal);color:var(--teal)" onclick="showAISummary('${id}')">🤖 AI Summary</button>
       </div>
     </div>` : ''}
@@ -5740,6 +5741,60 @@ async function deleteInsurance(id) {
   showToast('Insurer removed');
   S._adminTab = 'insurance';
   renderStaffPage();
+}
+
+function showAddDoctorModal(pid) {
+  const p = S.patients.find(x => x.id === pid);
+  if (!p) return;
+  const doctors = S.staff.filter(s => s.role === 'Doctor');
+  const colors = ['#00B4A6','#5C6BC0','#2E7D32','#F57C00','#C62828','#546E7A'];
+
+  showModal(`<div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h2>👨‍⚕️ Add / Change Doctor — ${p.name}</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="text-muted mb-3" style="font-size:13px">Select a doctor to assign. Current: <strong>${S.staff.find(s=>s.id===p.doctorId)?.name || '—'}</strong></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${doctors.map((d, i) => {
+          const load = S.patients.filter(pt => String(pt.doctorId) === String(d.id) && pt.status === 'Active').length;
+          const pct = Math.min(100, load * 12);
+          const bg = colors[i % colors.length];
+          const isCurrent = String(p.doctorId) === String(d.id);
+          return `<div onclick="assignDoctorFromModal('${pid}','${d.id}')" style="border:2px solid ${isCurrent?'#00B4A6':'#e2e8f0'};border-radius:10px;padding:12px;cursor:pointer;background:${isCurrent?'#E0F7FA':'white'}">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:42px;height:42px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;flex-shrink:0">${d.name.charAt(0)}</div>
+              <div style="flex:1">
+                <div style="font-weight:700;font-size:14px">${d.name}${isCurrent?' <span style="font-size:10px;background:#00B4A6;color:white;padding:1px 7px;border-radius:8px;margin-left:4px">Current</span>':''}</div>
+                <div style="font-size:12px;color:#64748b;margin-top:2px">🏥 ${d.specialty || d.dept || d.department || 'General Medicine'}</div>
+                <div style="font-size:11px;color:#94a3b8">Emp ID: ${d.empId || '—'}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-size:12px;color:#64748b">Patients: <strong>${load}</strong></div>
+                <div style="height:4px;width:70px;background:#e2e8f0;border-radius:2px;margin-top:4px"><div style="height:4px;background:${pct>70?'#e53e3e':pct>40?'#dd6b20':'#00B4A6'};border-radius:2px;width:${pct}%"></div></div>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function assignDoctorFromModal(pid, docId) {
+  const p = S.patients.find(x => x.id === pid);
+  if (!p) return;
+  const doc = S.staff.find(s => s.id === docId);
+  p.doctorId = docId;
+  closeModal();
+  showToast(`Dr. ${doc?.name} assigned to ${p.name} ✓`, 'info');
+  try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
+  if (IS_LIVE) await apiPatch('/patients/' + pid, { doctor_id: docId });
+  renderIPDDetail(pid);
 }
 
 function showAssignDoctorModal(id) {
