@@ -138,6 +138,14 @@ CREATE TABLE IF NOT EXISTS mar (
   given_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id SERIAL PRIMARY KEY,
+  patient_id INTEGER REFERENCES patients(id),
+  sender_id INTEGER REFERENCES staff(id),
+  message TEXT NOT NULL,
+  sent_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Seed default staff
 INSERT INTO staff(name,role,department,specialty,emp_id,email,password_hash) VALUES
   ('Dr. Arjun Mehta','Doctor','Cardiology','Cardiology','D-001','arjun@nurselink.in', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),

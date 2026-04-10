@@ -17,19 +17,15 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'nurselink_secret_2024';
 const PORT = process.env.PORT || 3000;
 
-// DB connection
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
   : null;
 
-// ── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
 function auth(req, res, next) {
   const h = req.headers.authorization;
   if (!h) return res.status(401).json({ error: 'No token' });
-  try {
-    req.user = jwt.verify(h.replace('Bearer ', ''), JWT_SECRET);
-    next();
-  } catch { res.status(401).json({ error: 'Invalid token' }); }
+  try { req.user = jwt.verify(h.replace('Bearer ', ''), JWT_SECRET); next(); }
+  catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
 // ── HEALTH ───────────────────────────────────────────────────────────────────
@@ -97,7 +93,9 @@ app.post('/api/patients', auth, async (req, res) => {
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING *`,
       [b.name,b.age,b.gender,b.phone,b.diagnosis||'',b.icd_code||'Z00',b.bed||null,
-       b.doctor_id||null,b.nurse_id||null,b.admission_type||'OPD Consultation',
+       b.doctor_id ? parseInt(b.doctor_id)||null : null,
+       b.nurse_id  ? parseInt(b.nurse_id)||null  : null,
+       b.admission_type||'OPD Consultation',
        b.chief_complaint||'',b.allergies||'None Known',b.blood_group||null,
        b.status||'OPD',b.diag_type||'Provisional',
        b.height_cm||null,b.weight_kg||null,b.bmi||null,
@@ -116,12 +114,19 @@ app.patch('/api/patients/:id', auth, async (req, res) => {
   let i = 1;
   const allowed = ['status','bed','doctor_id','nurse_id','diagnosis','icd_code',
     'chief_complaint','blood_group','allergies','admission_type','diag_type'];
-  allowed.forEach(k => { if (b[k] !== undefined) { fields.push(`${k}=$${i++}`); vals.push(b[k]); } });
+  allowed.forEach(k => {
+    if (b[k] !== undefined) {
+      fields.push(`${k}=$${i++}`);
+      if ((k === 'doctor_id' || k === 'nurse_id') && b[k] !== null)
+        vals.push(parseInt(b[k]) || null);
+      else vals.push(b[k]);
+    }
+  });
   if (!fields.length) return res.json({ ok: true });
   vals.push(req.params.id);
   try {
     const r = await pool.query(`UPDATE patients SET ${fields.join(',')} WHERE id=$${i} RETURNING *`, vals);
-    res.json(r.rows[0]);
+    res.json(r.rows[0] || { ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -138,6 +143,19 @@ app.patch('/api/patients/:id/discharge', auth, async (req, res) => {
 });
 
 // ── VITALS ───────────────────────────────────────────────────────────────────
+app.get('/api/vitals/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT v.*,s.name as recorded_by_name FROM vitals v
+       LEFT JOIN staff s ON s.id=v.recorded_by_id
+       WHERE v.patient_id=$1 ORDER BY v.recorded_at DESC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/vitals/:pid', auth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No DB' });
   const b = req.body; const pid = req.params.pid;
@@ -150,12 +168,42 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
        b.gcs||15,b.urine_output||40,b.blood_glucose||100,b.drain_output||0,
        b.pain_score||0,b.notes||'',req.user.id]
     );
-    io.emit('vitals:new', { ...r.rows[0], patient_id: pid });
+    io.emit('vitals:new', { ...r.rows[0], patient_id: pid, recorded_by_name: req.user.name });
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── PRESCRIPTIONS ────────────────────────────────────────────────────────────
+// ── PRESCRIPTIONS ─────────────────────────────────────────────────────────────
+// GET all active prescriptions (for pharmacist)
+app.get('/api/prescriptions', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT pr.*,p.name as patient_name,p.ehr_id,s.name as prescribed_by_name
+       FROM prescriptions pr
+       JOIN patients p ON p.id=pr.patient_id
+       LEFT JOIN staff s ON s.id=pr.prescribed_by_id
+       WHERE pr.status='active'
+       ORDER BY pr.created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET prescriptions for a specific patient
+app.get('/api/prescriptions/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT pr.*,s.name as prescribed_by_name FROM prescriptions pr
+       LEFT JOIN staff s ON s.id=pr.prescribed_by_id
+       WHERE pr.patient_id=$1 ORDER BY pr.created_at DESC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/prescriptions/:pid', auth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No DB' });
   const b = req.body; const pid = req.params.pid;
@@ -165,7 +213,8 @@ app.post('/api/prescriptions/:pid', auth, async (req, res) => {
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,'active') RETURNING *`,
       [pid,b.drug,b.dose||'',b.route||'Oral',b.frequency||'',b.duration||'',b.instructions||'',req.user.id]
     );
-    io.emit('prescription:new', { ...r.rows[0], patient_id: pid });
+    const row = { ...r.rows[0], patient_id: pid, prescribed_by_name: req.user.name };
+    io.emit('prescription:new', row);
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -178,7 +227,36 @@ app.patch('/api/prescriptions/:id/discontinue', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── LABS ─────────────────────────────────────────────────────────────────────
+// ── LAB ORDERS ────────────────────────────────────────────────────────────────
+// GET all pending lab orders (for lab tech)
+app.get('/api/labs', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT lo.*,p.name as patient_name,p.ehr_id,s.name as ordered_by_name
+       FROM lab_orders lo
+       JOIN patients p ON p.id=lo.patient_id
+       LEFT JOIN staff s ON s.id=lo.ordered_by_id
+       ORDER BY lo.created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET lab orders for a specific patient
+app.get('/api/labs/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT lo.*,s.name as ordered_by_name FROM lab_orders lo
+       LEFT JOIN staff s ON s.id=lo.ordered_by_id
+       WHERE lo.patient_id=$1 ORDER BY lo.created_at DESC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/labs/:pid', auth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No DB' });
   const pid = req.params.pid;
@@ -191,7 +269,56 @@ app.post('/api/labs/:pid', auth, async (req, res) => {
       );
       results.push(r.rows[0]);
     }
+    io.emit('labs:new', { patient_id: pid, orders: results, ordered_by_name: req.user.name });
     res.json(results);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/labs/:id/result', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const status = req.body.status || 'Result Available';
+    const result = req.body.result !== undefined ? req.body.result : null;
+    const r = await pool.query(
+      'UPDATE lab_orders SET result=$1,status=$2 WHERE id=$3 RETURNING *',
+      [result, status, req.params.id]
+    );
+    io.emit('labs:result', { ...r.rows[0] });
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── CHAT ──────────────────────────────────────────────────────────────────────
+// GET chat messages for a patient
+app.get('/api/chat/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT c.*,s.name as sender_name,s.role as sender_role FROM chat_messages c
+       LEFT JOIN staff s ON s.id=c.sender_id
+       WHERE c.patient_id=$1 ORDER BY c.sent_at ASC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST a chat message
+app.post('/api/chat/:pid', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const r = await pool.query(
+      'INSERT INTO chat_messages(patient_id,sender_id,message) VALUES($1,$2,$3) RETURNING *',
+      [req.params.pid, req.user.id, req.body.message]
+    );
+    const msg = {
+      ...r.rows[0],
+      patient_id: req.params.pid,
+      sender_name: req.user.name,
+      sender_role: req.user.role,
+    };
+    io.emit('chat:message', msg);
+    res.json(msg);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -217,11 +344,23 @@ app.get('/api/queue', auth, async (req, res) => {
   if (!pool) return res.json([]);
   try {
     const r = await pool.query(
-      `SELECT q.*,p.name,p.ehr_id,p.chief_complaint FROM opd_queue q
+      `SELECT q.*,p.name,p.ehr_id,p.chief_complaint,p.doctor_id FROM opd_queue q
        JOIN patients p ON p.id=q.patient_id
        WHERE q.status IN ('Waiting','Called') ORDER BY q.created_at ASC`
     );
     res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/queue', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const r = await pool.query(
+      'INSERT INTO opd_queue(patient_id,doctor_id,status) VALUES($1,$2,$3) RETURNING *',
+      [req.body.patient_id, req.body.doctor_id||null, 'Waiting']
+    );
+    io.emit('queue:update');
+    res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -235,6 +374,19 @@ app.patch('/api/queue/:id/status', auth, async (req, res) => {
 });
 
 // ── NOTES ────────────────────────────────────────────────────────────────────
+app.get('/api/notes/consult/:pid', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT n.*,s.name as created_by_name FROM consult_notes n
+       LEFT JOIN staff s ON s.id=n.created_by_id
+       WHERE n.patient_id=$1 ORDER BY n.created_at DESC`,
+      [req.params.pid]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/notes/consult/:pid', auth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No DB' });
   const b = req.body;
@@ -263,6 +415,7 @@ app.post('/api/mar', auth, async (req, res) => {
 io.on('connection', socket => {
   socket.on('sos:trigger', data => io.emit('sos:trigger', data));
   socket.on('sos:acknowledge', data => io.emit('sos:acknowledge', data));
+  // Chat via socket (fallback for non-DB mode)
   socket.on('chat:message', data => io.emit('chat:message', data));
 });
 
