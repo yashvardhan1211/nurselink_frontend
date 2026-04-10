@@ -3208,9 +3208,13 @@ async function submitDoctorOrder(pid) {
   // Save prescriptions
   if (!S.prescriptions[pid]) S.prescriptions[pid] = [];
   for (const d of validRx) {
-    const rx = { id:'RX'+Date.now()+Math.random(), drug:d.drug, dose:d.dose, route:d.route, freq:d.freq, duration:d.dur, instructions:d.inst, prescribedBy:getCurrentStaffName(), time:now(), status:'active' };
-    S.prescriptions[pid].unshift(rx);
-    if (IS_LIVE) apiPost('/prescriptions/' + pid, { drug:d.drug, dose:d.dose, route:d.route, frequency:d.freq, duration:d.dur, instructions:d.inst });
+    if (IS_LIVE && !String(pid).startsWith('P')) {
+      // Let socket handle adding to avoid duplicates
+      apiPost('/prescriptions/' + pid, { drug:d.drug, dose:d.dose, route:d.route, frequency:d.freq, duration:d.dur, instructions:d.inst });
+    } else {
+      const rx = { id:'RX'+Date.now()+Math.random(), drug:d.drug, dose:d.dose, route:d.route, freq:d.freq, duration:d.dur, instructions:d.inst, prescribedBy:getCurrentStaffName(), time:now(), status:'active' };
+      S.prescriptions[pid].unshift(rx);
+    }
   }
 
   // Save labs
@@ -3495,11 +3499,13 @@ async function submitMed(pid) {
 
   for (const d of valid) {
     const rx = { id:'RX'+Date.now()+Math.random(), drug:d.drug, dose:d.dose, route:d.route, freq:d.freq, duration:d.dur, instructions:d.inst, prescribedBy:getCurrentStaffName(), time:now(), status:'active' };
-    S.prescriptions[pid].unshift(rx);
-    S.notifications.unshift({ id:'N'+Date.now(), role:'Pharmacist', title:'New Prescription', body:`${S.patients.find(p=>p.id===pid)?.name} — ${d.drug} ${d.dose}`, time:ts(), read:false });
     const isRealPid = pid && !String(pid).startsWith('P');
     if (IS_LIVE && isRealPid) {
+      // Don't add locally — let socket prescription:new event handle it to avoid duplicates
       apiPost('/prescriptions/' + pid, { drug:d.drug, dose:d.dose, route:d.route, frequency:d.freq, duration:d.dur, instructions:d.inst });
+    } else {
+      S.prescriptions[pid].unshift(rx);
+      S.notifications.unshift({ id:'N'+Date.now(), role:'Pharmacist', title:'New Prescription', body:`${S.patients.find(p=>p.id===pid)?.name} — ${d.drug} ${d.dose}`, time:ts(), read:false });
     }
   }
   showToast(`${valid.length} drug${valid.length>1?'s':''} added to prescription`);
