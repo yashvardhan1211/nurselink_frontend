@@ -2022,7 +2022,7 @@ function runOPDTriage() {
   const currentPatient = S.patients.find(x => String(x.id) === String(S.activePatientId));
   const colors = ['#00B4A6','#5C6BC0','#2E7D32','#F57C00','#C62828','#546E7A'];
   const docCards = doctors.map((d, i) => {
-    const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
+    const load = getDoctorLoad(d.id).total;
     const pct = Math.min(100, load * 12);
     const isRec = recommended && String(d.id) === String(recommended.id);
     const isAssigned = currentPatient && String(currentPatient.doctorId) === String(d.id);
@@ -4607,7 +4607,7 @@ function renderAdminTriageForm() {
           <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">👨‍⚕️ Assign Doctor</div>
           <div style="padding:12px;display:flex;flex-direction:column;gap:8px" id="at-doc-list">
             ${doctors.map((d, i) => {
-              const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
+              const load = getDoctorLoad(d.id).total;
               const pct = Math.min(100, load * 12);
               const bg = colors[i % colors.length];
               return `<div id="at-doc-${d.id}" onclick="selectAdminDoc('${d.id}')" style="border:2px solid #e2e8f0;border-radius:10px;padding:10px;cursor:pointer;background:white">
@@ -4759,7 +4759,7 @@ function renderAdmitForm() {
 
   const doctorCardsHtml = doctors.map(d => {
 
-    const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
+    const load = getDoctorLoad(d.id).total;
 
     const pct = Math.min(100, load * 12);
 
@@ -6771,6 +6771,14 @@ async function renderAuditPage() {
   `;
 }
 
+// Helper: get total patient load for a doctor (IPD Active + OPD)
+function getDoctorLoad(doctorId) {
+  const id = String(doctorId);
+  const ipd = S.patients.filter(p => String(p.doctorId) === id && p.status === 'Active').length;
+  const opd = S.patients.filter(p => String(p.doctorId) === id && p.status === 'OPD').length;
+  return { ipd, opd, total: ipd + opd };
+}
+
 function renderWorkloadPage() {
   const main = document.getElementById('main');
   const nurses = S.staff.filter(s=>s.role==='Nurse');
@@ -6799,14 +6807,18 @@ function renderWorkloadPage() {
         <div class="card-header"><h3>Doctor Workload</h3></div>
         <div class="card-body">
           ${doctors.map(d => {
-            const count = S.patients.filter(p=>p.doctorId===d.id&&p.status==='Active').length;
-            const pct = Math.round((count/10)*100);
+            const {ipd, opd, total} = getDoctorLoad(d.id);
+            const pct = Math.round((total/10)*100);
             return `<div class="mb-3">
               <div class="flex items-center justify-between mb-1">
                 <span class="text-sm fw-600">${d.name}</span>
-                <span class="text-muted text-sm">${count} patients</span>
+                <span class="text-muted text-sm">
+                  <span style="color:var(--teal)">${ipd} IPD</span>
+                  ${opd>0?`<span style="color:var(--indigo);margin-left:6px">+ ${opd} OPD</span>`:''}
+                  <span style="margin-left:6px;font-weight:700">${total} total</span>
+                </span>
               </div>
-              <div class="workload-bar"><div class="workload-fill ${count>=8?'high':count>=5?'med':''}" style="width:${Math.min(pct,100)}%"></div></div>
+              <div class="workload-bar"><div class="workload-fill ${total>=8?'high':total>=5?'med':''}" style="width:${Math.min(pct,100)}%"></div></div>
             </div>`;
           }).join('')}
         </div>
@@ -6912,8 +6924,8 @@ function renderAnalyticsPage() {
   // Doctor workloads
   const docWorkload = doctors.map(d=>({
     name: d.name.split(' ').slice(-1)[0],
-    ipd: S.patients.filter(p=>p.doctorId===d.id&&p.status==='Active').length,
-    opd: S.patients.filter(p=>p.doctorId===d.id&&p.status==='OPD').length,
+    ipd: getDoctorLoad(d.id).ipd,
+    opd: getDoctorLoad(d.id).opd,
   }));
 
   // LOS distribution
@@ -7160,7 +7172,7 @@ function renderIndiaMap(filter) {
   const container = document.getElementById('india-map-container');
   if(!container) return;
 
-  container.style.height = '460px';
+  container.style.height = '520px';
   container.style.borderRadius = '8px';
   container.style.overflow = 'hidden';
   container.innerHTML = `<div id="india-leaflet-map" style="width:100%;height:100%"></div>`;
@@ -7225,8 +7237,12 @@ function renderIndiaMap(filter) {
         layer.on('mouseout', function() { geojsonLayer.resetStyle(this); });
       }
     }).addTo(map);
-    // Hardcoded India bounds: SW 6.5°N 68°E → NE 37.5°N 97.5°E — ensures full J&K is visible
-    map.fitBounds([[6.5, 68.0], [37.5, 97.5]], { padding:[5,5] });
+    // Fit to full India — center 22.5°N 82.5°E, zoom 4 shows entire subcontinent
+    map.setView([22.5, 82.5], 4);
+    // After a tick, fit bounds with maxZoom to ensure all states visible
+    setTimeout(() => {
+      try { map.fitBounds([[6.5, 68.0], [37.5, 97.5]], { padding:[8,8], maxZoom:5 }); } catch(e) {}
+    }, 100);
     Object.entries(stateCount).forEach(([stateName, cnt]) => {
       if(!cnt) return;
       let found = null;
@@ -8949,7 +8965,7 @@ function assignDoctor(specialty, severity) {
     if (severity === 'CRITICAL' && (deptRaw.includes('emergency') || deptRaw.includes('critical'))) pts += 30;
 
     // Workload penalty
-    const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
+    const load = getDoctorLoad(d.id).total;
     pts -= load * 5;
 
     // Unavailable penalty
@@ -9062,7 +9078,7 @@ function renderTriagePage() {
         <div class="card-body">
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
             ${doctors.map(d => {
-              const load = S.patients.filter(p => String(p.doctorId) === String(d.id) && p.status === 'Active').length;
+              const load = getDoctorLoad(d.id).total;
               const pct = Math.min(100, load * 12);
               const cls = pct > 70 ? 'high' : pct > 40 ? 'med' : '';
               return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px">
