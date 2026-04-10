@@ -7068,7 +7068,17 @@ function renderNetworkPage() {
         <div style="font-size:13px;font-weight:600;margin-bottom:8px">Share a Case</div>
         <select class="form-control mb-2" id="net-case-sel" onchange="previewNetCase(this.value)">
           <option value="">— Attach a patient case (anonymised) —</option>
-          ${S.patients.map(p=>`<option value="${p.id}">${anonymiseCase(p)}</option>`).join('')}
+          ${(() => {
+            const myId = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : null;
+            const myName = getCurrentStaffName();
+            const myPts = S.patients.filter(p => {
+              if (myId) return String(p.doctorId) === myId;
+              const d = S.staff.find(s => s.name === myName && s.role === 'Doctor');
+              return d && String(p.doctorId) === String(d.id);
+            }).filter(p => p.status === 'Active' || p.status === 'OPD');
+            if (!myPts.length) return '<option disabled>No active patients</option>';
+            return myPts.map(p => `<option value="${p.id}">${anonymiseCase(p)} · ${p.status}</option>`).join('');
+          })()}
         </select>
         <div id="net-case-preview" style="display:none;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px;font-size:12px;color:#1E3A5F;margin-bottom:8px;line-height:1.8"></div>
         <textarea class="form-control mb-2" id="net-post-text" rows="3" placeholder="Clinical discussion, findings, questions for peers..."></textarea>
