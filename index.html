@@ -4438,7 +4438,7 @@ function renderAdmitForm() {
 
 
 
-    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+    <div style="display:grid;grid-template-columns:${S.currentRole === 'Doctor' ? '1fr' : '1fr 340px'};gap:20px;align-items:start">
 
       <div>
 
@@ -4631,33 +4631,19 @@ function renderAdmitForm() {
 
 
       <!-- RIGHT: TRIAGE RESULT + DOCTOR ASSIGNMENT -->
-
+      ${S.currentRole !== 'Doctor' ? `
       <div style="position:sticky;top:80px">
-
-
-        <!-- Doctor Assignment -->
-
         <div style="border:2px solid var(--border);border-radius:10px;background:white;overflow:hidden">
-
           <div style="background:var(--navy);color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
-
             <span style="font-weight:700;font-size:13px">👨‍⚕️ Assign Doctor</span>
-
             <span id="admit-doc-specialty" style="font-size:11px;opacity:0.7"></span>
-
           </div>
-
           <div style="padding:12px;display:flex;flex-direction:column;gap:8px" id="admit-doc-list">
-
             ${doctorCardsHtml}
-
           </div>
-
           <input type="hidden" id="ad-doc" value="">
-
         </div>
-
-      </div>
+      </div>` : `<input type="hidden" id="ad-doc" value="">`}
 
     </div>
 
@@ -4853,7 +4839,13 @@ async function submitAdmit() {
     else docId = '';
   }
 
-  if (nurseId === 'auto') {
+  let docId = document.getElementById('ad-doc')?.value || '';
+  // Doctor role: auto-assign to themselves
+  if (S.currentRole === 'Doctor') {
+    const me = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : S.staff.find(s=>s.role==='Doctor')?.id || '';
+    docId = me;
+  }
+  if (!docId) docId = S.staff.find(s=>s.role==='Doctor')?.id || '';
     const nrss = S.staff.filter(s=>s.role==='Nurse');
     if(nrss.length) nurseId = nrss.sort((a,b)=>S.patients.filter(p=>p.nurseId===a.id && p.status==='Active').length - S.patients.filter(p=>p.nurseId===b.id && p.status==='Active').length)[0].id;
     else nurseId = '';
@@ -7991,7 +7983,7 @@ function runTriage() {
           ${docHtml}
         </div>
         <button class="btn btn-primary w-full" style="justify-content:center;margin-top:16px" onclick="admitFromTriage('${result.specialty}','${assignedDoc?.id||''}','${result.severity}')">
-          âž• Admit Patient with This Assignment
+          • Admit Patient with This Assignment
         </button>
       </div>
     </div>
@@ -8101,7 +8093,7 @@ function renderPatientAIPage() {
     <div class="grid-2" style="gap:20px;align-items:start">
       <div>
         <div class="card">
-          <div class="card-header"><h3>📎„ Upload / Paste Report</h3></div>
+          <div class="card-header"><h3> Upload / Paste Report</h3></div>
           <div class="card-body">
             <div class="form-group">
               <label class="form-label">Patient Name (optional)</label>
@@ -8123,7 +8115,7 @@ function renderPatientAIPage() {
                 ondragover="event.preventDefault();this.style.borderColor='var(--teal)'"
                 ondragleave="this.style.borderColor='var(--border)'"
                 ondrop="handlePAIFileDrop(event)">
-                <div style="font-size:32px">📎Ž</div>
+                <div style="font-size:32px"></div>
                 <div style="font-size:13px;font-weight:600;margin-top:6px">Drop file here or click to browse</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px">PDF, JPG, PNG supported</div>
               </div>
@@ -8303,22 +8295,22 @@ ${reportText || '[IMAGE_REPORT_PLACEHOLDER]'}
 
 Please provide a structured response in the following format:
 
-## 📎Š Report Summary
+## Report Summary
 List each test/value found, its result, normal range, and status (Normal/Low/High/Critical).
 
-## ðŸš¨ Red Flags
+## Red Flags
 List any values or findings that need immediate attention. If none, say "No critical red flags."
 
-## ðŸ’¬ Plain Language Explanation
+## ¬ Plain Language Explanation
 Explain what the report means in simple, non-medical language that the patient can understand.
 
-## !¡ Urgent Action Plan
+## Urgent Action Plan
 1. Immediate steps the patient should take
 2. Supplements or foods to address deficiencies
 3. Warning signs to watch for
 4. When to visit a doctor (urgency level)
 
-## ðŸŒ¿ 7-Day Lifestyle Blueprint
+## 7-Day Lifestyle Blueprint
 **Daily Diet:** What to eat and avoid
 **Hydration:** Water intake recommendations
 **Sleep:** Sleep hygiene tips
@@ -8403,28 +8395,28 @@ function generateMockAIResponse(text, name, age, gender) {
 
   const tableRows = parsed.length ? parsed.map(p => `| ${p.name} | ${p.value} ${p.unit} | — | Review needed |`).join('\n') : '| No structured values detected | — | — | Paste text for analysis |';
 
-  return `## 📎Š Report Summary
+  return `## Report Summary
 
 | Test | Result | Normal Range | Status |
 |------|--------|--------------|--------|
 ${tableRows}
 
-## ðŸš¨ Red Flags
+## Red Flags
 
 Based on the provided information, please consult your doctor for a full interpretation. Common flags to watch: Haemoglobin < 12 g/dL, WBC > 11,000, LDL > 130 mg/dL, Vitamin B12 < 200 pg/mL.
 
-## ðŸ’¬ Plain Language Explanation
+## Plain Language Explanation
 
 Your report contains several health markers that your doctor has measured. Think of these like a dashboard for your body — some numbers are in the green zone (normal), and some may need attention. The important thing is not to panic — most values can be improved with the right lifestyle changes and, where needed, medication.
 
-## !¡ Urgent Action Plan
+## Urgent Action Plan
 
 1. **Immediate steps:** Share this report with your primary care doctor within the next 7 days.
 2. **Nutrition:** If iron or B12 is low, increase leafy greens, eggs, and lean meat. Consider a B-complex supplement.
 3. **Warning signs:** Seek emergency care if you experience chest pain, severe breathlessness, or fainting.
 4. **Doctor visit:** Schedule a follow-up within 1 week for any flagged values.
 
-## ðŸŒ¿ 7-Day Lifestyle Blueprint
+## 7-Day Lifestyle Blueprint
 
 **Daily Diet:** Focus on whole grains, vegetables, lean protein, and fruits. Avoid processed foods, excess salt, and sugar.
 
@@ -8464,7 +8456,7 @@ function renderAIResult(panel, markdown, name) {
   panel.innerHTML = `
     <div class="card">
       <div class="card-header" style="background:var(--navy);color:white">
-        <h3>🤖 AI Analysis — ${name}</h3>
+        <h3> AI Analysis — ${name}</h3>
         <button onclick="printAIReport()" class="btn btn-ghost btn-sm">ðŸ–¨ Print</button>
       </div>
       <div class="card-body" id="ai-report-content" style="line-height:1.7;font-size:13px">
