@@ -216,23 +216,27 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
 
     if (alerts.length > 0) {
       const savedAlerts = [];
+      // Fetch patient name for the emit
+      const ptRow = await pool.query('SELECT name FROM patients WHERE id=$1', [pid]).catch(() => ({ rows: [] }));
+      const patientName = ptRow.rows[0]?.name || '';
       for (const a of alerts) {
         const ar = await pool.query(
           'INSERT INTO alerts(patient_id,type,title,message) VALUES($1,$2,$3,$4) RETURNING *',
           [pid, a.type, a.title, a.message]
         );
-        savedAlerts.push(ar.rows[0]);
+        savedAlerts.push({ ...ar.rows[0], patient_name: patientName });
       }
-      io.emit('alert:new', { patientId: pid, alerts: savedAlerts });
+      io.emit('alert:new', { patientId: String(pid), patientName, alerts: savedAlerts });
     }
 
     // Emit notification for new vitals entry (nurse → doctor)
     io.emit('notification:new', {
       role: 'Doctor',
       title: `New Vitals: ${req.user.name}`,
-      body: `Patient #${pid} — BP ${sbp}/${dbp}, SpO2 ${spo2}%`,
+      body: `${ptRow.rows[0]?.name || 'Patient #'+pid} — BP ${sbp}/${dbp}, SpO2 ${spo2}%`,
       time: new Date().toISOString(),
-      patientId: pid,
+      patientId: String(pid),
+      patientName: ptRow.rows[0]?.name || '',
     });
 
     res.json(r.rows[0]);
@@ -388,12 +392,16 @@ app.post('/api/chat/:pid', auth, async (req, res) => {
     io.emit('chat:message', msg);
     // Notify the opposite role
     const targetRole = req.user.role === 'Doctor' ? 'Nurse' : 'Doctor';
+    // Fetch patient name for the notification
+    const ptInfo = await pool.query('SELECT name FROM patients WHERE id=$1', [req.params.pid]).catch(() => ({ rows: [] }));
+    const ptName = ptInfo.rows[0]?.name || '';
     io.emit('notification:new', {
       role: targetRole,
       title: `Message from ${req.user.name}`,
-      body: `Re: Patient #${req.params.pid} — ${req.body.message?.substring(0, 60)}`,
+      body: `${ptName || 'Patient #'+req.params.pid} — ${req.body.message?.substring(0, 60)}`,
       time: new Date().toISOString(),
-      patientId: req.params.pid,
+      patientId: String(req.params.pid),
+      patientName: ptName,
     });
     res.json(msg);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -403,7 +411,12 @@ app.post('/api/chat/:pid', auth, async (req, res) => {
 app.get('/api/alerts', auth, async (req, res) => {
   if (!pool) return res.json([]);
   try {
-    const r = await pool.query('SELECT * FROM alerts ORDER BY created_at DESC LIMIT 50');
+    const r = await pool.query(
+      `SELECT a.*, p.name as patient_name, p.ehr_id
+       FROM alerts a
+       LEFT JOIN patients p ON p.id = a.patient_id
+       ORDER BY a.created_at DESC LIMIT 100`
+    );
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

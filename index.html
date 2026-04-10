@@ -857,15 +857,16 @@ async function tryLoadLiveData() {
     const liveAlerts = alertsRes.map(a => ({
       id: String(a.id),
       patientId: String(a.patient_id || a.patientId),
+      patientName: a.patient_name || '',
       type: a.type || 'info',
       title: a.title || a.alert_type || 'Alert',
       msg: a.message || a.msg || '',
       time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : '',
       acked: !!a.acknowledged_by
     }));
-    // Always replace with live data (clears demo alerts)
-    S.alerts = liveAlerts;
-    // Clear demo notifications
+    // Only replace if server returned data — prevents wiping on empty response
+    if (liveAlerts.length > 0) S.alerts = liveAlerts;
+    // Clear demo notifications (hardcoded INIT ones)
     S.notifications = S.notifications.filter(n => !['N1','N2','N3','N4'].includes(n.id));
   }
 
@@ -967,14 +968,24 @@ function connectSocket() {
     });
     socket.on('alert:new', data => {
       const pid = String(data.patientId || data.patient_id || '');
-      const p = S.patients.find(x => x.id === pid);
+      const patientName = data.patientName || S.patients.find(x => x.id === pid)?.name || '';
       (data.alerts || []).forEach(a => {
         const alertId = String(a.id || 'A'+Date.now()+Math.random());
         if (S.alerts.find(x => String(x.id) === alertId)) return;
-        const alert = { id: alertId, patientId: pid, type: a.type, title: a.title, msg: a.message || a.msg || '', time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : ts(), acked: false };
+        const alert = {
+          id: alertId,
+          patientId: pid,
+          patientName,
+          type: a.type,
+          title: a.title,
+          msg: a.message || a.msg || '',
+          time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : ts(),
+          acked: false
+        };
         S.alerts.unshift(alert);
-        showToast(`${a.title}${p ? ': '+p.name : ''}`, a.type==='critical'?'error':'warn');
-        S.notifications.unshift({ id:'N'+Date.now()+Math.random(), role:'Doctor', title:`⚠ ${a.title}`, body:`${p?.name||'Patient'} — ${a.message||a.msg||''}`, time:ts(), read:false });
+        showToast(`${a.title}${patientName ? ': '+patientName : ''}`, a.type==='critical'?'error':'warn');
+        S.notifications.unshift({ id:'N'+Date.now()+Math.random(), role:'Doctor', title:`⚠ ${a.title}`, body:`${patientName||'Patient'} — ${a.message||a.msg||''}`, time:ts(), read:false });
+        S.notifications.unshift({ id:'N'+Date.now()+Math.random(), role:'Nurse', title:`⚠ ${a.title}`, body:`${patientName||'Patient'} — ${a.message||a.msg||''}`, time:ts(), read:false });
       });
       renderAlertFeed();
       renderNotifBadge();
@@ -988,7 +999,8 @@ function connectSocket() {
       if (data.role && data.role !== S.currentRole) return;
       const pid = String(data.patientId || '');
       const p = pid ? S.patients.find(x => x.id === pid) : null;
-      const body = p ? data.body.replace(`#${pid}`, p.name) : data.body;
+      const patientName = p?.name || data.patientName || '';
+      const body = patientName ? data.body.replace(`#${pid}`, patientName) : data.body;
       S.notifications.unshift({ id:'N'+Date.now()+Math.random(), role: data.role || S.currentRole, title: data.title, body, time: data.time ? new Date(data.time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : ts(), read: false });
       renderNotifBadge();
       try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
@@ -4460,7 +4472,7 @@ function renderAlertFeed() {
     ? '<div class="text-muted text-sm" style="padding:16px;text-align:center">No active alerts</div>'
     : unacked.map(a => {
         const p = S.patients.find(x => x.id === a.patientId);
-        const patientLabel = p ? p.name : (a.patientId ? `Patient #${a.patientId}` : '');
+        const patientLabel = p?.name || a.patientName || (a.patientId ? `Patient #${a.patientId}` : '');
         return `<div class="alert-item ${a.type}">
           <div class="al-title">${a.title}</div>
           <div class="al-meta">${patientLabel} · ${a.time}</div>
