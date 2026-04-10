@@ -5595,12 +5595,16 @@ function renderStaffPage() {
       ${S.staff.length===0?'<div class="card-body text-muted">No staff found.</div>':S.staff.map(s => `
         <div class="staff-row">
           <div class="staff-avatar" style="background:${roleColors[s.role]||'var(--slate)'}">${s.name.split(' ').map(n=>n[0]).join('').substring(0,2)}</div>
-          <div class="staff-info">
+          <div class="staff-info" style="flex:1">
             <div class="staff-name">${s.name}</div>
-            <div class="staff-dept">${s.role} · ${s.dept}</div>
-            <div class="staff-link">nurselink.hospital/staff/${(s.empId||'').toLowerCase()}</div>
+            <div class="staff-dept">${s.role} · ${s.specialty||s.dept||'—'}</div>
+            <div class="staff-link">Emp ID: ${s.empId||'—'}</div>
           </div>
-          <span class="badge badge-${s.role==='Doctor'?'teal':s.role==='Nurse'?'indigo':s.role==='Pharmacist'?'green':s.role==='Lab Tech'?'amber':'indigo'}">${s.role}</span>
+          <span class="badge badge-${s.role==='Doctor'?'teal':s.role==='Nurse'?'indigo':s.role==='Pharmacist'?'green':s.role==='Lab Tech'?'amber':'indigo'}" style="margin-right:8px">${s.role}</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="showEditStaffModal('${s.id}')">✏️ Edit</button>
+            <button class="btn btn-sm" style="background:#FFEBEE;color:var(--red);border:1px solid #FFCDD2" onclick="deleteStaff('${s.id}','${s.name}')">🗑 Delete</button>
+          </div>
         </div>
       `).join('')}
     </div>` : ''}
@@ -5844,6 +5848,83 @@ async function saveAssignDoctor(id) {
     });
   }
   renderIPDDetail(id);
+}
+
+function showEditStaffModal(staffId) {
+  const s = S.staff.find(x => x.id === staffId);
+  if (!s) return;
+  const DEPTS = ['General Medicine','General Surgery','Emergency Medicine','Critical Care Medicine','Cardiology','Neurology','Nephrology','Endocrinology','Gastroenterology','Pulmonary Medicine','Rheumatology','Infectious Diseases','Clinical Hematology','Medical Oncology','Dermatology','Psychiatry','Orthopedics','Neurosurgery','Urology','Cardiothoracic & Vascular Surgery','Plastic & Reconstructive Surgery','Pediatric Surgery','Surgical Oncology','Gastrointestinal Surgery','Hepatobiliary Surgery','Vascular Surgery','Obstetrics & Gynaecology','Pediatrics','Ophthalmology','ENT','Anesthesiology','Radiology','Pain Medicine','Palliative Medicine','Geriatric Medicine','Family Medicine','Public Health','Hospital Administration','Ward A','Ward B','Ward C','ICU','NICU','OT','Pharmacy','Pathology','Administration'];
+
+  showModal(`<div class="modal">
+    <div class="modal-header"><h2>✏️ Edit Staff — ${s.name}</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Full Name *</label><input class="form-control" id="es-name" value="${s.name}"></div>
+        <div class="form-group">
+          <label class="form-label">Role *</label>
+          <select class="form-control" id="es-role">
+            ${['Doctor','Nurse','Pharmacist','Lab Tech','Admin','Billing','Counter'].map(r=>`<option ${s.role===r?'selected':''}>${r}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Department / Specialty</label>
+          <select class="form-control" id="es-dept">
+            ${DEPTS.map(d=>`<option ${(s.specialty||s.dept)===d?'selected':''}>${d}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Employee ID</label><input class="form-control" id="es-emp" value="${s.empId||''}"></div>
+      </div>
+      <div class="form-group"><label class="form-label">New Password (leave blank to keep current)</label><input class="form-control" id="es-pass" type="password" placeholder="Enter new password to change"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditStaff('${staffId}')">Save Changes</button>
+    </div>
+  </div>`);
+}
+
+async function submitEditStaff(staffId) {
+  const s = S.staff.find(x => x.id === staffId);
+  if (!s) return;
+  const name  = document.getElementById('es-name').value.trim();
+  const role  = document.getElementById('es-role').value;
+  const dept  = document.getElementById('es-dept').value;
+  const empId = document.getElementById('es-emp').value.trim();
+  const pass  = document.getElementById('es-pass').value.trim();
+  if (!name) { alert('Name is required'); return; }
+
+  s.name  = name;
+  s.role  = role;
+  s.dept  = dept;
+  s.specialty = dept;
+  s.empId = empId;
+
+  closeModal();
+
+  if (IS_LIVE) {
+    const payload = { name, role, department: dept, specialty: dept, emp_id: empId };
+    if (pass) payload.password = pass;
+    await apiPatch('/staff/' + staffId, payload);
+  }
+
+  showToast(`${name} updated ✓`, 'info');
+  save();
+  S._adminTab = 'staff';
+  renderStaffPage();
+}
+
+async function deleteStaff(staffId, staffName) {
+  if (!confirm(`Delete ${staffName}? This cannot be undone.`)) return;
+  S.staff = S.staff.filter(x => x.id !== staffId);
+  if (IS_LIVE) {
+    await fetch(`${API_BASE}/staff/${staffId}`, { method:'DELETE', headers:{ Authorization:'Bearer '+API_TOKEN }}).catch(()=>{});
+  }
+  showToast(`${staffName} removed`, 'warn');
+  save();
+  S._adminTab = 'staff';
+  renderStaffPage();
 }
 
 function showAddStaffModal() {
