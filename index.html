@@ -4448,17 +4448,7 @@ function acknowledgeSOS() {
 // ALERT FEED
 function renderAlertFeed() {
   const feed = document.getElementById('alert-feed');
-  // Filter alerts relevant to current role's patients
-  const myId = IS_LIVE && window._loggedInUser ? String(window._loggedInUser.id) : null;
-  let unacked = S.alerts.filter(a => !a.acked);
-  if (S.currentRole === 'Doctor' || S.currentRole === 'Nurse') {
-    const myPts = new Set(S.patients
-      .filter(p => myId ? (S.currentRole==='Doctor' ? String(p.doctorId)===myId : String(p.nurseId)===myId) : true)
-      .map(p => p.id));
-    // Show all alerts if no patients assigned yet, otherwise filter
-    if (myPts.size > 0) unacked = unacked.filter(a => myPts.has(a.patientId) || !a.patientId);
-  }
-  unacked = unacked.slice(0, 15);
+  const unacked = S.alerts.filter(a => !a.acked).slice(0, 15);
   const count = document.getElementById('alert-count');
   if (unacked.length > 0) {
     count.style.display = 'inline';
