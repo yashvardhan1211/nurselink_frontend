@@ -1077,7 +1077,7 @@ async function loadPatientData(pid) {
   ]);
   if (vitals) S.vitals[pid] = vitals.map(v=>({ id:String(v.id), time:new Date(v.recorded_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})+' '+new Date(v.recorded_at).toLocaleDateString('en-IN'), bpSys:v.bp_sys, bpDia:v.bp_dia, pulse:v.pulse, spo2:v.spo2, temp:v.temperature, rr:v.resp_rate, gcs:v.gcs, uo:v.urine_output, glucose:v.blood_glucose, drain:v.drain_output, pain:v.pain_score, notes:v.notes, nurse:v.recorded_by_name||'Staff' }));
   if (rx) S.prescriptions[pid] = rx.map(r=>({ id:String(r.id), drug:r.drug, dose:r.dose, route:r.route, freq:r.frequency, duration:r.duration, instructions:r.instructions, prescribedBy:r.prescribed_by_name||'Doctor', time:new Date(r.created_at).toLocaleString('en-IN'), status:r.status }));
-  if (labs) S.labOrders[pid] = labs.map(l=>({ id:String(l.id), test:l.test_name, category:l.category, priority:l.priority, status:l.status, result:l.result||'', resultStatus:l.result_status||'', orderedBy:l.ordered_by_name||'Doctor', time:new Date(l.created_at).toLocaleString('en-IN') }));
+  if (labs) S.labOrders[pid] = labs.map(l=>({ id:String(l.id), test:l.test_name, category:l.category, priority:l.priority, status:l.status, result:l.result||'', resultStatus:l.result_status||'', orderedBy:l.ordered_by_name||'Doctor', time:new Date(l.created_at).toLocaleString('en-IN'), reportUrl:l.report_url||null, reportName:l.report_name||null }));
   if (consult) S.consultNotes[pid] = consult.map(c=>({ id:String(c.id), time:new Date(c.created_at).toLocaleString('en-IN'), by:c.written_by_name||'Doctor', subjective:c.subjective, objective:c.objective, assessment:c.assessment, plan:c.plan }));
   if (nursing) S.nursingNotes[pid] = nursing.map(n=>({ id:String(n.id), time:new Date(n.created_at).toLocaleString('en-IN'), by:n.written_by_name||'Nurse', note:n.note }));
   if (chat) S.chat[pid] = chat.map(m=>({ from:m.sender_role, name:m.sender_name, msg:m.message, time:new Date(m.sent_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) }));
@@ -1446,6 +1446,7 @@ function renderSidebar() {
       { icon:'🩺', label:'Patient AI', view:'patientai' },
 
       { icon:'📚', label:'My Prescriptions', view:'patient-rx' },
+      { icon:'🔬', label:'My Lab Reports', view:'patient-labs' },
 
       { icon:'📎', label:'Discharge Summary', view:'patient-discharge' },
 
@@ -1513,6 +1514,7 @@ function renderMain() {
     triage: renderTriagePage,
     patientai: renderPatientAIPage,
     'patient-rx': renderPatientRxPage,
+    'patient-labs': renderPatientLabsPage,
     'patient-discharge': renderPatientDischargePage,
   };
   if (view === 'patientDetail') { renders.patientDetail(); return; }
@@ -2997,14 +2999,23 @@ function renderLabsTab(id, p) {
     </div>
     ${labs.length===0 ? '<div class="text-muted">No investigations ordered.</div>' : ''}
     ${labs.map(l => `
-      <div class="lab-test-item">
-        <div>
-          <div class="lab-test-name">${l.test}</div>
-          <div style="font-size:11px;color:var(--text-muted)">${l.category} | Ordered by ${l.orderedBy} | ${l.time}</div>
+      <div class="lab-test-item" style="flex-direction:column;align-items:flex-start;gap:6px">
+        <div class="flex items-center gap-3 w-full">
+          <div style="flex:1">
+            <div class="lab-test-name">${l.test}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${l.category||''} | Ordered by ${l.orderedBy} | ${l.time}</div>
+          </div>
+          <span class="lab-priority ${l.priority.toLowerCase()}">${l.priority}</span>
+          <span class="lab-status ${l.status==='Result Available'?'normal-val':l.status==='Processing'?'warn-val':'text-muted'}">${l.status}</span>
         </div>
-        <span class="lab-priority ${l.priority.toLowerCase()}">${l.priority}</span>
-        <span class="lab-status ${l.status==='Result Available'?'normal-val':l.status==='Processing'?'warn-val':'text-muted'}">${l.status}</span>
-        ${l.result ? `<div style="font-size:12px;font-family:var(--mono);color:${l.resultStatus==='Critical'?'var(--red)':l.resultStatus==='Abnormal'?'var(--warn)':'var(--success)'}">${l.result}</div>` : ''}
+        ${l.result ? `<div style="font-size:12px;font-family:var(--mono);padding:6px 10px;background:var(--panel);border-radius:6px;width:100%;color:${l.resultStatus==='Critical'?'var(--red)':l.resultStatus==='Abnormal'?'var(--warn)':'var(--success)'}">${l.result}</div>` : ''}
+        ${l.reportUrl ? `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#E3F2FD;border-radius:6px;width:100%">
+          <span style="font-size:16px">📄</span>
+          <span style="font-size:12px;flex:1;color:#1565C0">${l.reportName||'Lab Report'}</span>
+          <button class="btn btn-primary btn-sm" onclick="viewLabReport('${l.id}')">👁 View</button>
+          <button class="btn btn-outline btn-sm" onclick="downloadLabReport('${l.id}')">⬇ Download</button>
+        </div>` : ''}
       </div>
     `).join('')}
   `;
@@ -5826,12 +5837,82 @@ async function enterResult(pid, labId, testName, patientName) {
         </div>
         <div class="form-group"><label class="form-label">Reference Range (optional)</label><input class="form-control" id="lr-ref" placeholder="e.g. 12–16 g/dL"></div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Upload Report (PDF / Image)</label>
+        <div id="lr-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;cursor:pointer;background:var(--panel)"
+          onclick="document.getElementById('lr-file-input').click()"
+          ondragover="event.preventDefault();this.style.borderColor='var(--teal)'"
+          ondragleave="this.style.borderColor='var(--border)'"
+          ondrop="handleLabReportDrop(event)">
+          <div style="font-size:28px">📎</div>
+          <div style="font-size:13px;font-weight:600;margin-top:6px">Drop file here or click to browse</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">PDF, JPG, PNG supported</div>
+        </div>
+        <input type="file" id="lr-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleLabReportSelect(event)">
+        <div id="lr-file-name" style="font-size:12px;color:var(--teal);margin-top:6px;display:none"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" onclick="submitLabResult('${pid}','${labId}','${testName}','${patientName}')">Submit Result</button>
     </div>
   </div>`);
+}
+
+function handleLabReportDrop(e) {
+  e.preventDefault();
+  document.getElementById('lr-drop-zone').style.borderColor = 'var(--border)';
+  const file = e.dataTransfer.files[0];
+  if (file) processLabReportFile(file);
+}
+
+function handleLabReportSelect(e) {
+  const file = e.target.files[0];
+  if (file) processLabReportFile(file);
+}
+
+function viewLabReport(labId) {
+  // Find the lab order across all patients
+  let lab = null;
+  for (const pid of Object.keys(S.labOrders)) {
+    lab = S.labOrders[pid].find(l => String(l.id) === String(labId));
+    if (lab) break;
+  }
+  if (!lab?.reportUrl) { showToast('No report file available', 'warn'); return; }
+  // Open in new window
+  const win = window.open('', '_blank');
+  if (lab.reportUrl.startsWith('data:image')) {
+    win.document.write(`<html><body style="margin:0;background:#000"><img src="${lab.reportUrl}" style="max-width:100%;display:block;margin:auto"></body></html>`);
+  } else {
+    win.document.write(`<html><body style="margin:0"><embed src="${lab.reportUrl}" type="application/pdf" width="100%" height="100%" style="position:fixed;inset:0"></body></html>`);
+  }
+  win.document.close();
+}
+
+function downloadLabReport(labId) {
+  let lab = null;
+  for (const pid of Object.keys(S.labOrders)) {
+    lab = S.labOrders[pid].find(l => String(l.id) === String(labId));
+    if (lab) break;
+  }
+  if (!lab?.reportUrl) { showToast('No report file available', 'warn'); return; }
+  const a = document.createElement('a');
+  a.href = lab.reportUrl;
+  a.download = lab.reportName || `lab_report_${labId}`;
+  a.click();
+}
+
+function processLabReportFile(file) {
+  const nameEl = document.getElementById('lr-file-name');
+  nameEl.textContent = '📎 ' + file.name + ' — Reading...';
+  nameEl.style.display = 'block';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    window._labReportData = ev.target.result; // base64 data URL
+    window._labReportName = file.name;
+    nameEl.textContent = '✅ ' + file.name + ' ready to upload';
+  };
+  reader.readAsDataURL(file);
 }
 
 async function submitLabResult(pid, labId, testName, patientName) {
@@ -5841,11 +5922,15 @@ async function submitLabResult(pid, labId, testName, patientName) {
   if (!val) { alert('Result value required.'); return; }
 
   const resultText = val + (ref ? ` [Ref: ${ref}]` : '');
+  const reportUrl = window._labReportData || null;
+  const reportName = window._labReportName || null;
+  window._labReportData = null;
+  window._labReportName = null;
 
   // Update local state
   if (S.labOrders[pid]) {
     const lab = S.labOrders[pid].find(l => String(l.id) === String(labId));
-    if (lab) { lab.status = 'Result Available'; lab.result = resultText; lab.resultStatus = status; }
+    if (lab) { lab.status = 'Result Available'; lab.result = resultText; lab.resultStatus = status; lab.reportUrl = reportUrl; lab.reportName = reportName; }
   }
 
   // Notify doctor
@@ -5857,11 +5942,11 @@ async function submitLabResult(pid, labId, testName, patientName) {
 
   // Sync to server
   if (IS_LIVE) {
-    await apiPatch('/labs/' + labId + '/result', { result: resultText, status: 'Result Available' });
+    await apiPatch('/labs/' + labId + '/result', { result: resultText, status: 'Result Available', report_url: reportUrl, report_name: reportName });
   }
 
   closeModal();
-  showToast('Result submitted ✓', 'info');
+  showToast('Result submitted ✓' + (reportUrl ? ' with report' : ''), 'info');
   save();
   renderLabTechPage();
 }
@@ -9224,6 +9309,64 @@ function renderPatientRxPage() {
     <div style="margin-top:16px;padding:14px;background:#E3F2FD;border-radius:10px;font-size:12px;color:#1565C0;border-left:3px solid #1976D2">
       ℹ️ Always take medications as prescribed. Do not stop or change doses without consulting your doctor.
     </div>`;
+}
+
+function renderPatientLabsPage() {
+  const main = document.getElementById('main');
+
+  // Collect all lab orders with results across all patients
+  const allLabs = [];
+  S.patients.forEach(p => {
+    (S.labOrders[p.id] || []).forEach(l => {
+      if (l.status === 'Result Available' || l.reportUrl) {
+        allLabs.push({ ...l, patientName: p.name, patientId: p.id });
+      }
+    });
+  });
+
+  if (!allLabs.length) {
+    main.innerHTML = `
+      <div class="section-title">🔬 My Lab Reports</div>
+      <div class="section-sub">Lab results and uploaded reports</div>
+      <div class="card"><div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted)">
+        <div style="font-size:48px;margin-bottom:12px">🔬</div>
+        <div style="font-weight:600">No lab reports yet</div>
+        <div style="font-size:12px;margin-top:6px">Your lab results will appear here once processed</div>
+      </div></div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="section-title">🔬 My Lab Reports</div>
+    <div class="section-sub">${allLabs.length} result${allLabs.length>1?'s':''} available</div>
+    ${allLabs.map(l => `
+      <div class="card mb-3">
+        <div class="card-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700;font-size:15px">🧪 ${l.test}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${l.category||''} · ${l.time}</div>
+            </div>
+            <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;background:${l.resultStatus==='Critical'?'#FFEBEE':l.resultStatus==='Abnormal'?'#FFF3E0':'#E8F5E9'};color:${l.resultStatus==='Critical'?'#C62828':l.resultStatus==='Abnormal'?'#E65100':'#2E7D32'}">${l.resultStatus||'Normal'}</span>
+          </div>
+          ${l.result ? `
+          <div style="background:var(--panel);border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:13px;margin-bottom:10px;color:${l.resultStatus==='Critical'?'var(--red)':l.resultStatus==='Abnormal'?'var(--warn)':'var(--text)'}">
+            ${l.result}
+          </div>` : ''}
+          ${l.reportUrl ? `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#E3F2FD;border-radius:8px;border-left:3px solid #1976D2">
+            <span style="font-size:24px">📄</span>
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:13px;color:#1565C0">${l.reportName||'Lab Report'}</div>
+              <div style="font-size:11px;color:#64748b">Uploaded by Lab Technician</div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="viewLabReport('${l.id}')">👁 View</button>
+            <button class="btn btn-outline btn-sm" onclick="downloadLabReport('${l.id}')">⬇ Save</button>
+          </div>` : `
+          <div style="font-size:12px;color:var(--text-muted);font-style:italic">No report file uploaded yet</div>`}
+        </div>
+      </div>
+    `).join('')}`;
 }
 
 function renderPatientDischargePage() {
