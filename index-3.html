@@ -5600,7 +5600,7 @@ function renderStaffPage() {
             <div class="staff-dept">${s.role} · ${s.specialty||s.dept||'—'}</div>
             <div class="staff-link">Emp ID: ${s.empId||'—'}</div>
           </div>
-          <span class="badge badge-${s.role==='Doctor'?'teal':s.role==='Nurse'?'indigo':s.role==='Pharmacist'?'green':s.role==='Lab Tech'?'amber':'indigo'}" style="margin-right:8px">${s.role}</span>
+          <span class="badge badge-${s.role==='Doctor'?'teal':s.role==='Nurse'?'indigo':s.role==='Pharmacist'?'green':s.role==='Lab Tech'?'amber':s.role==='Billing'?'red':s.role==='Counter'?'indigo':'indigo'}" style="margin-right:8px">${s.role}</span>
           <div style="display:flex;gap:6px">
             <button class="btn btn-outline btn-sm" onclick="showEditStaffModal('${s.id}')">✏️ Edit</button>
             <button class="btn btn-sm" style="background:#FFEBEE;color:var(--red);border:1px solid #FFCDD2" onclick="deleteStaff('${s.id}','${s.name}')">🗑 Delete</button>
@@ -5935,7 +5935,7 @@ function showAddStaffModal() {
         <div class="form-group"><label class="form-label">Full Name *</label><input class="form-control" id="sf-name" placeholder="Dr. / Nurse / etc."></div>
         <div class="form-group">
           <label class="form-label">Role *</label>
-          <select class="form-control" id="sf-role"><option>Doctor</option><option>Nurse</option><option>Pharmacist</option><option>Lab Tech</option><option>Admin</option></select>
+          <select class="form-control" id="sf-role"><option>Doctor</option><option>Nurse</option><option>Pharmacist</option><option>Lab Tech</option><option>Admin</option><option>Billing</option><option>Counter</option></select>
         </div>
       </div>
       <div class="form-row">
