@@ -642,7 +642,9 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 <!-- MODAL CONTAINER -->
 <div id="modal-container"></div>
 
-<!-- TOAST CONTAINER -->
+<!-- Drug autocomplete list — populated by JS -->
+<datalist id="drug-list"></datalist>
+
 <div id="toast-container"></div>
 
 <script src="config.js"></script>
@@ -3294,6 +3296,122 @@ function showAddMedModal(patientId) {
   renderRxRows();
 }
 
+// ── DRUG DATABASE ────────────────────────────────────────────────────────────
+const DRUG_DB = [
+  // Diabetes
+  {n:'Pioglitazone 15 mg',d:'15',u:'mg',r:'Oral',f:'OD'},{n:'Pioglitazone 30 mg',d:'30',u:'mg',r:'Oral',f:'OD'},
+  {n:'Voglibose 0.2 mg',d:'0.2',u:'mg',r:'Oral',f:'TDS'},{n:'Voglibose 0.3 mg',d:'0.3',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Rosiglitazone 4 mg',d:'4',u:'mg',r:'Oral',f:'OD'},{n:'Rosiglitazone 8 mg',d:'8',u:'mg',r:'Oral',f:'OD'},
+  {n:'Acarbose 25 mg',d:'25',u:'mg',r:'Oral',f:'TDS'},{n:'Acarbose 50 mg',d:'50',u:'mg',r:'Oral',f:'TDS'},{n:'Acarbose 100 mg',d:'100',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Linagliptin 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Sitagliptin 50 mg',d:'50',u:'mg',r:'Oral',f:'OD'},{n:'Sitagliptin 100 mg',d:'100',u:'mg',r:'Oral',f:'OD'},
+  {n:'Dapagliflozin 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Empagliflozin 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Empagliflozin 25 mg',d:'25',u:'mg',r:'Oral',f:'OD'},
+  {n:'Metformin 500 mg',d:'500',u:'mg',r:'Oral',f:'BD'},{n:'Metformin 1000 mg',d:'1000',u:'mg',r:'Oral',f:'BD'},{n:'Metformin 2000 mg',d:'2000',u:'mg',r:'Oral',f:'OD'},
+  {n:'Glimiperide 1 mg',d:'1',u:'mg',r:'Oral',f:'OD'},{n:'Glimiperide 2 mg',d:'2',u:'mg',r:'Oral',f:'OD'},{n:'Glimiperide 4 mg',d:'4',u:'mg',r:'Oral',f:'OD'},
+  {n:'Glipizide 2.5 mg',d:'2.5',u:'mg',r:'Oral',f:'OD'},{n:'Glipizide 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Glipizide 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},
+  {n:'Glibenclamide 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Human Insulin Regular',d:'As directed',u:'IU',r:'SC',f:'TDS'},{n:'Human Insulin NPH',d:'As directed',u:'IU',r:'SC',f:'OD'},
+  // Antihypertensives
+  {n:'Telmisartan 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},{n:'Telmisartan 40 mg',d:'40',u:'mg',r:'Oral',f:'OD'},{n:'Telmisartan 80 mg',d:'80',u:'mg',r:'Oral',f:'OD'},
+  {n:'Losartan 25 mg',d:'25',u:'mg',r:'Oral',f:'OD'},{n:'Losartan 50 mg',d:'50',u:'mg',r:'Oral',f:'OD'},{n:'Losartan 100 mg',d:'100',u:'mg',r:'Oral',f:'OD'},
+  {n:'Amlodipine 2.5 mg',d:'2.5',u:'mg',r:'Oral',f:'OD'},{n:'Amlodipine 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Amlodipine 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},
+  {n:'Cilnidipine 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Cilnidipine 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Cilnidipine 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},
+  {n:'Enalapril 2.5 mg',d:'2.5',u:'mg',r:'Oral',f:'BD'},{n:'Enalapril 5 mg',d:'5',u:'mg',r:'Oral',f:'BD'},
+  {n:'Nitroglycerin Sublingual',d:'0.5',u:'mg',r:'SL',f:'SOS'},{n:'Isosorbide Dinitrate 5 mg',d:'5',u:'mg',r:'SL',f:'SOS'},
+  // Statins
+  {n:'Atorvastatin 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Atorvastatin 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},{n:'Atorvastatin 40 mg',d:'40',u:'mg',r:'Oral',f:'OD'},{n:'Atorvastatin 80 mg',d:'80',u:'mg',r:'Oral',f:'OD'},
+  {n:'Rosuvastatin 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Rosuvastatin 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Rosuvastatin 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},{n:'Rosuvastatin 40 mg',d:'40',u:'mg',r:'Oral',f:'OD'},
+  // Diuretics
+  {n:'Furosemide 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},{n:'Furosemide 40 mg',d:'40',u:'mg',r:'Oral',f:'OD'},{n:'Furosemide 80 mg',d:'80',u:'mg',r:'Oral',f:'OD'},
+  // GI
+  {n:'Pantoprazole 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},{n:'Pantoprazole 40 mg',d:'40',u:'mg',r:'Oral',f:'OD'},
+  {n:'Omeprazole 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},{n:'Omeprazole 40 mg',d:'40',u:'mg',r:'Oral',f:'OD'},
+  {n:'Metronidazole 400 mg',d:'400',u:'mg',r:'Oral',f:'TDS'},{n:'Metronidazole 500 mg',d:'500',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Drotaverine 40 mg',d:'40',u:'mg',r:'Oral',f:'TDS'},{n:'Drotaverine 80 mg',d:'80',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Dicyclomine Tablets',d:'10',u:'mg',r:'Oral',f:'TDS'},{n:'Ranitidine 150 mg',d:'150',u:'mg',r:'Oral',f:'BD'},
+  // Analgesics / Anti-inflammatory
+  {n:'Diclofenac 50 mg',d:'50',u:'mg',r:'Oral',f:'BD'},{n:'Diclofenac 75 mg',d:'75',u:'mg',r:'Oral',f:'BD'},
+  {n:'Paracetamol 500 mg',d:'500',u:'mg',r:'Oral',f:'TDS'},{n:'Paracetamol 650 mg',d:'650',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Etoricoxib 60 mg',d:'60',u:'mg',r:'Oral',f:'OD'},{n:'Etoricoxib 90 mg',d:'90',u:'mg',r:'Oral',f:'OD'},{n:'Etoricoxib 120 mg',d:'120',u:'mg',r:'Oral',f:'OD'},
+  {n:'Polamcoxib 2 mg',d:'2',u:'mg',r:'Oral',f:'OD'},
+  // Steroids
+  {n:'Deflazacort 2 mg',d:'2',u:'mg',r:'Oral',f:'OD'},{n:'Deflazacort 6 mg',d:'6',u:'mg',r:'Oral',f:'OD'},{n:'Deflazacort 12 mg',d:'12',u:'mg',r:'Oral',f:'OD'},{n:'Deflazacort 24 mg',d:'24',u:'mg',r:'Oral',f:'OD'},
+  {n:'Prednisolone 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Dexamethasone 0.5 mg',d:'0.5',u:'mg',r:'Oral',f:'OD'},
+  {n:'Hydrocortisone Injection 100 mg',d:'100',u:'mg',r:'IV',f:'Stat'},{n:'Dexamethasone Injection 4 mg',d:'4',u:'mg',r:'IV',f:'OD'},
+  {n:'Clobetasone 0.05%',d:'Apply thin layer',u:'',r:'Topical',f:'BD'},{n:'Betamethasone Cream',d:'Apply thin layer',u:'',r:'Topical',f:'BD'},
+  // Neuro / Psych
+  {n:'Methylcobalamin 500 mcg',d:'500',u:'mcg',r:'Oral',f:'OD'},{n:'Methylcobalamin 1500 mcg',d:'1500',u:'mcg',r:'Oral',f:'OD'},
+  {n:'Pregabalin 75 mg',d:'75',u:'mg',r:'Oral',f:'BD'},{n:'Pregabalin 150 mg',d:'150',u:'mg',r:'Oral',f:'BD'},
+  {n:'Gabapentin 300 mg',d:'300',u:'mg',r:'Oral',f:'TDS'},{n:'Gabapentin 600 mg',d:'600',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Nortriptyline 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Nortriptyline 25 mg',d:'25',u:'mg',r:'Oral',f:'OD'},
+  {n:'Piracetam 800 mg',d:'800',u:'mg',r:'Oral',f:'TDS'},{n:'Piracetam 1200 mg',d:'1200',u:'mg',r:'Oral',f:'BD'},
+  {n:'Fluoxetine 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Fluoxetine 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},
+  {n:'Escitalopram 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Escitalopram 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},
+  {n:'Alprazolam 0.25 mg',d:'0.25',u:'mg',r:'Oral',f:'OD'},{n:'Alprazolam 0.5 mg',d:'0.5',u:'mg',r:'Oral',f:'OD'},
+  {n:'Clonazepam 0.25 mg',d:'0.25',u:'mg',r:'Oral',f:'OD'},{n:'Clonazepam 0.5 mg',d:'0.5',u:'mg',r:'Oral',f:'OD'},
+  {n:'Diazepam 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Diazepam 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},
+  {n:'Phenytoin 100 mg',d:'100',u:'mg',r:'Oral',f:'TDS'},{n:'Phenobarbital 30 mg',d:'30',u:'mg',r:'Oral',f:'OD'},
+  // Rheumatology
+  {n:'Methotrexate 7.5 mg',d:'7.5',u:'mg',r:'Oral',f:'Once weekly'},{n:'Methotrexate 15 mg',d:'15',u:'mg',r:'Oral',f:'Once weekly'},
+  {n:'Leflunomide 10 mg',d:'10',u:'mg',r:'Oral',f:'OD'},{n:'Leflunomide 20 mg',d:'20',u:'mg',r:'Oral',f:'OD'},
+  {n:'Chymoral Forte 50 mg',d:'50',u:'mg',r:'Oral',f:'TDS'},
+  // Urology
+  {n:'Tamsulosin 0.4 mg',d:'0.4',u:'mg',r:'Oral',f:'OD'},
+  // Antibiotics
+  {n:'Doxycycline 100 mg',d:'100',u:'mg',r:'Oral',f:'BD'},{n:'Amoxicillin 250 mg',d:'250',u:'mg',r:'Oral',f:'TDS'},{n:'Amoxicillin 500 mg',d:'500',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Amoxyclav 625 mg',d:'625',u:'mg',r:'Oral',f:'BD'},{n:'Azithromycin 500 mg',d:'500',u:'mg',r:'Oral',f:'OD'},
+  {n:'Ciprofloxacin 250 mg',d:'250',u:'mg',r:'Oral',f:'BD'},{n:'Ciprofloxacin 500 mg',d:'500',u:'mg',r:'Oral',f:'BD'},
+  {n:'Cefixime 200 mg',d:'200',u:'mg',r:'Oral',f:'BD'},{n:'Cotrimoxazole Tablets',d:'960',u:'mg',r:'Oral',f:'BD'},
+  {n:'Gentamicin Injection',d:'80',u:'mg',r:'IM',f:'BD'},{n:'Chloramphenicol Eye Drops',d:'1 drop',u:'',r:'Topical',f:'QID'},
+  // Cardiology
+  {n:'Clopidogrel 75 mg',d:'75',u:'mg',r:'Oral',f:'OD'},{n:'Clopidogrel 150 mg',d:'150',u:'mg',r:'Oral',f:'OD'},
+  {n:'Warfarin 2 mg',d:'2',u:'mg',r:'Oral',f:'OD'},{n:'Warfarin 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},
+  // ENT / Allergy
+  {n:'Betahistine 8 mg',d:'8',u:'mg',r:'Oral',f:'TDS'},{n:'Betahistine 16 mg',d:'16',u:'mg',r:'Oral',f:'TDS'},
+  {n:'Chlorpheniramine Maleate',d:'4',u:'mg',r:'Oral',f:'TDS'},{n:'Pheniramine Injection',d:'22.75',u:'mg',r:'IM',f:'Stat'},
+  {n:'Salbutamol Inhaler',d:'2 puffs',u:'',r:'Inhalation',f:'Q4H'},{n:'Salbutamol Tablets',d:'4',u:'mg',r:'Oral',f:'TDS'},
+  // Thyroid
+  {n:'Levothyroxine 25 mcg',d:'25',u:'mcg',r:'Oral',f:'OD'},{n:'Levothyroxine 50 mcg',d:'50',u:'mcg',r:'Oral',f:'OD'},{n:'Levothyroxine 100 mcg',d:'100',u:'mcg',r:'Oral',f:'OD'},
+  // Haematinics
+  {n:'Ferrous Salt + Folic Acid',d:'1 tablet',u:'',r:'Oral',f:'OD'},{n:'Folic Acid 5 mg',d:'5',u:'mg',r:'Oral',f:'OD'},{n:'Folic Acid 400 mcg',d:'400',u:'mcg',r:'Oral',f:'OD'},
+  {n:'Multivitamin Tablets',d:'1 tablet',u:'',r:'Oral',f:'OD'},{n:'Iron Folic Acid Syrup',d:'10',u:'ml',r:'Oral',f:'OD'},
+  // Emergency / Injections
+  {n:'Adrenaline Injection 1 mg/ml',d:'1',u:'mg',r:'IM',f:'Stat'},{n:'Atropine Injection 1 mg/ml',d:'1',u:'mg',r:'IV',f:'Stat'},
+  {n:'Magnesium Sulfate Injection',d:'4',u:'g',r:'IV',f:'Stat'},{n:'Calcium Gluconate Injection 10%',d:'10',u:'ml',r:'IV',f:'Stat'},
+  {n:'Activated Charcoal',d:'50',u:'g',r:'Oral',f:'Stat'},{n:'ORS Packet',d:'1 sachet',u:'',r:'Oral',f:'As needed'},
+  {n:'Dextrose 5% IV',d:'500',u:'ml',r:'IV',f:'As directed'},{n:'Dextrose 25% IV',d:'100',u:'ml',r:'IV',f:'Stat'},
+  {n:'Normal Saline 0.9%',d:'500',u:'ml',r:'IV',f:'As directed'},{n:'Ringer Lactate',d:'500',u:'ml',r:'IV',f:'As directed'},
+  {n:'Oxytocin Injection 10 IU',d:'10',u:'IU',r:'IM',f:'Stat'},{n:'Misoprostol 200 mcg',d:'200',u:'mcg',r:'Oral',f:'Stat'},
+  {n:'Neostigmine Injection',d:'0.5',u:'mg',r:'IV',f:'Stat'},{n:'Vecuronium Injection 4 mg',d:'4',u:'mg',r:'IV',f:'Stat'},
+  {n:'Pentazocine Injection 30 mg',d:'30',u:'mg',r:'IM',f:'SOS'},{n:'Promethazine Injection 25 mg',d:'25',u:'mg',r:'IM',f:'SOS'},
+  {n:'Rabies Vaccine',d:'1 dose',u:'',r:'IM',f:'As per schedule'},{n:'Tetanus Toxoid',d:'0.5',u:'ml',r:'IM',f:'Stat'},
+  // Eye / Topical
+  {n:'Tobramycin Eye Drop',d:'1 drop',u:'',r:'Topical',f:'QID'},{n:'Moxifloxacin Eye Drop',d:'1 drop',u:'',r:'Topical',f:'QID'},
+  {n:'Miconazole Cream',d:'Apply thin layer',u:'',r:'Topical',f:'BD'},{n:'Clotrimazole Cream',d:'Apply thin layer',u:'',r:'Topical',f:'BD'},
+  {n:'Permethrin Cream',d:'Apply',u:'',r:'Topical',f:'Once'},{n:'Povidone-Iodine Solution',d:'Apply',u:'',r:'Topical',f:'BD'},
+  {n:'Chlorhexidine Solution',d:'Apply',u:'',r:'Topical',f:'BD'},{n:'Tendocare Forte',d:'1 tablet',u:'',r:'Oral',f:'OD'},
+];
+
+function rxAutofillDose(i, val) {
+  if (!val || val.length < 3) return;
+  const match = DRUG_DB.find(d => d.n.toLowerCase() === val.toLowerCase());
+  if (!match) return;
+  // Autofill dose, unit, route, frequency
+  const doseEl = document.getElementById('rx-dose-'+i);
+  const unitEl = document.getElementById('rx-unit-'+i);
+  const routeEl = document.getElementById('rx-route-'+i);
+  const freqEl = document.getElementById('rx-freq-'+i);
+  if (doseEl && !doseEl.value) doseEl.value = match.d;
+  if (unitEl) { for(let o of unitEl.options) if(o.value===match.u){o.selected=true;break;} }
+  if (routeEl) { for(let o of routeEl.options) if(o.value===match.r){o.selected=true;break;} }
+  if (freqEl) { for(let o of freqEl.options) if(o.value===match.f){o.selected=true;break;} }
+  if (window._rxDrugs[i]) { window._rxDrugs[i].dose=match.d; window._rxDrugs[i].route=match.r; window._rxDrugs[i].freq=match.f; }
+}
+
+// Populate datalist on load
+document.addEventListener('DOMContentLoaded', () => {
+  const dl = document.getElementById('drug-list');
+  if (dl) DRUG_DB.forEach(d => { const o = document.createElement('option'); o.value = d.n; dl.appendChild(o); });
+});
+
 function renderRxRows() {
   const container = document.getElementById('rx-rows');
   if (!container) return;
@@ -3304,8 +3422,9 @@ function renderRxRows() {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Drug Name *</label>
-          <input class="form-control" id="rx-drug-${i}" placeholder="e.g. Tab. Amoxicillin" value="${d.drug||''}"
-            oninput="window._rxDrugs[${i}].drug=this.value">
+          <input class="form-control" id="rx-drug-${i}" placeholder="Type drug name to search..." value="${d.drug||''}"
+            list="drug-list" autocomplete="off"
+            oninput="window._rxDrugs[${i}].drug=this.value;rxAutofillDose(${i},this.value)">
         </div>
         <div class="form-group">
           <label class="form-label">Dose / Strength *</label>
