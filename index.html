@@ -995,6 +995,25 @@ function connectSocket() {
       const a = S.alerts.find(x => String(x.id) === String(data.id));
       if (a) { a.acked = true; renderAlertFeed(); }
     });
+    socket.on('care_team:update', data => {
+      const p = S.patients.find(x => x.id === String(data.patientId));
+      if (!p) return;
+      if (!p.careTeam) p.careTeam = [];
+      if (data.action === 'add') {
+        if (!p.careTeam.find(t => t.staffId === String(data.staffId))) {
+          const s = S.staff.find(x => x.id === String(data.staffId));
+          p.careTeam.push({ staffId: String(data.staffId), name: data.staffName || s?.name || '—', role: data.role, dept: s?.dept || '' });
+        }
+      } else if (data.action === 'remove') {
+        p.careTeam = p.careTeam.filter(t => t.staffId !== String(data.staffId));
+      }
+      // Refresh overview if viewing this patient
+      if (String(S.activePatientId) === String(data.patientId)) {
+        const tabDiv = document.getElementById('tab-content');
+        if (tabDiv && S.activeTab[data.patientId] === 'overview') tabDiv.innerHTML = renderOverviewTab(data.patientId, p);
+      }
+      try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
+    });
     socket.on('notification:new', data => {
       if (data.role && data.role !== S.currentRole) return;
       const pid = String(data.patientId || '');
@@ -1157,7 +1176,7 @@ function connectSocket() {
 
 async function loadPatientData(pid) {
   if (!IS_LIVE) return;
-  const [vitals, rx, labs, consult, nursing, chat, vaccines] = await Promise.all([
+  const [vitals, rx, labs, consult, nursing, chat, vaccines, team] = await Promise.all([
     apiGet('/vitals/' + pid),
     apiGet('/prescriptions/' + pid),
     apiGet('/labs/' + pid),
@@ -1165,6 +1184,7 @@ async function loadPatientData(pid) {
     apiGet('/notes/nursing/' + pid),
     apiGet('/chat/' + pid),
     apiGet('/vaccinations/' + pid),
+    apiGet('/patients/' + pid + '/team'),
   ]);
   if (vitals) S.vitals[pid] = vitals.map(v=>({ id:String(v.id), time:new Date(v.recorded_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})+' '+new Date(v.recorded_at).toLocaleDateString('en-IN'), bpSys:v.bp_sys, bpDia:v.bp_dia, pulse:v.pulse, spo2:v.spo2, temp:v.temperature, rr:v.resp_rate, gcs:v.gcs, uo:v.urine_output, glucose:v.blood_glucose, drain:v.drain_output, pain:v.pain_score, notes:v.notes, nurse:v.recorded_by_name||'Staff' }));
   if (rx) S.prescriptions[pid] = rx.map(r=>({ id:String(r.id), drug:r.drug, dose:r.dose, route:r.route, freq:r.frequency, duration:r.duration, instructions:r.instructions, prescribedBy:r.prescribed_by_name||'Doctor', time:new Date(r.created_at).toLocaleString('en-IN'), status:r.status }));
@@ -1175,6 +1195,17 @@ async function loadPatientData(pid) {
   if (vaccines) {
     if (!S.vaccinations) S.vaccinations = {};
     S.vaccinations[pid] = vaccines.map(v=>({ id:String(v.id), name:v.name, dose:v.dose, doseNum:v.dose_number, route:v.route, date:v.date_administered?new Date(v.date_administered).toISOString().split('T')[0]:'', nextDate:v.next_due_date?new Date(v.next_due_date).toISOString().split('T')[0]:'', notes:v.notes, by:v.given_by_name||'Doctor', time:new Date(v.created_at).toLocaleString('en-IN') }));
+  }
+  if (team && Array.isArray(team)) {
+    const p = S.patients.find(x => x.id === pid);
+    if (p) {
+      p.careTeam = team.map(t => ({ staffId: String(t.staff_id), name: t.name, role: t.staff_role || t.role, dept: t.department || t.specialty || '' }));
+      // Keep primary doctorId/nurseId in sync with first doctor/nurse in team
+      const firstDoc = p.careTeam.find(t => t.role === 'Doctor');
+      const firstNurse = p.careTeam.find(t => t.role === 'Nurse');
+      if (firstDoc && !p.doctorId) p.doctorId = firstDoc.staffId;
+      if (firstNurse && !p.nurseId) p.nurseId = firstNurse.staffId;
+    }
   }
   if (socket) socket.emit('join:patient', pid);
   renderAll();
@@ -2896,8 +2927,14 @@ function renderOverviewTab(id, p) {
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--mono)">ICD-10: ${p.icd}</div>
           <hr class="divider">
           <div class="form-label">Care Team</div>
-          <div style="font-size:13px">👨‍⚕️ ${doc?.name || '—'}</div>
-          <div style="font-size:13px;margin-top:4px">👩‍⚕️ ${nurse?.name || '—'}</div>
+          ${(() => {
+            const team = p.careTeam && p.careTeam.length > 0 ? p.careTeam : [
+              ...(p.doctorId ? [{ staffId: p.doctorId, name: S.staff.find(s=>s.id===p.doctorId)?.name || '—', role: 'Doctor' }] : []),
+              ...(p.nurseId  ? [{ staffId: p.nurseId,  name: S.staff.find(s=>s.id===p.nurseId)?.name  || '—', role: 'Nurse'  }] : []),
+            ];
+            if (team.length === 0) return '<div style="font-size:13px;color:var(--text-muted)">No care team assigned</div>';
+            return team.map(m => `<div style="font-size:13px;margin-top:4px">${m.role==='Doctor'?'👨‍⚕️':'👩‍⚕️'} ${m.name} <span style="font-size:10px;color:var(--text-muted)">${m.role}</span></div>`).join('');
+          })()}
           <hr class="divider">
           <div class="flex gap-3">
             <div style="text-align:center;flex:1"><div style="font-size:22px;font-weight:700">${rxCount}</div><div class="text-muted">Active Rx</div></div>
@@ -2966,7 +3003,7 @@ function renderOverviewTab(id, p) {
         <button class="btn btn-primary" onclick="showDoctorOrderModal('${id}')">📋 Consult + Prescribe + Investigate</button>
         <button class="btn btn-primary" onclick="showRecordVitalsModal('${id}')">📊 Record Vitals</button>
         <button class="btn btn-outline" onclick="setTab('${id}','chat')">💬 Chat with Nurse</button>
-        <button class="btn btn-outline" onclick="showAddDoctorModal('${id}')">👨‍⚕️ Add Doctor</button>
+        <button class="btn btn-outline" onclick="showManageCareTeamModal('${id}')">👥 Manage Care Team</button>
         <button class="btn btn-outline" style="border-color:var(--teal);color:var(--teal)" onclick="showAISummary('${id}')">🤖 AI Summary</button>
       </div>
     </div>` : ''}
@@ -6256,57 +6293,149 @@ async function deleteInsurance(id) {
 }
 
 function showAddDoctorModal(pid) {
+  showManageCareTeamModal(pid);
+}
+
+async function showManageCareTeamModal(pid) {
   const p = S.patients.find(x => x.id === pid);
   if (!p) return;
-  const doctors = S.staff.filter(s => s.role === 'Doctor');
-  const colors = ['#00B4A6','#5C6BC0','#2E7D32','#F57C00','#C62828','#546E7A'];
 
-  showModal(`<div class="modal" style="max-width:520px">
+  // Fetch latest team from server if live
+  if (IS_LIVE) {
+    const team = await apiGet('/patients/' + pid + '/team').catch(() => null);
+    if (team && Array.isArray(team)) {
+      p.careTeam = team.map(t => ({ staffId: String(t.staff_id), name: t.name, role: t.staff_role || t.role, dept: t.department || t.specialty || '' }));
+    }
+  }
+  if (!p.careTeam) p.careTeam = [];
+
+  const doctors = S.staff.filter(s => s.role === 'Doctor');
+  const nurses  = S.staff.filter(s => s.role === 'Nurse');
+  const colors  = ['#00B4A6','#5C6BC0','#2E7D32','#F57C00','#C62828','#546E7A'];
+
+  const teamDoctors = p.careTeam.filter(t => t.role === 'Doctor');
+  const teamNurses  = p.careTeam.filter(t => t.role === 'Nurse');
+
+  const memberRow = (m) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#E0F7FA;border-radius:8px;margin-bottom:6px">
+      <div style="width:32px;height:32px;border-radius:50%;background:${m.role==='Doctor'?'#00B4A6':'#5C6BC0'};color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${m.name.charAt(0)}</div>
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13px">${m.name}</div>
+        <div style="font-size:11px;color:#64748b">${m.role} · ${m.dept||'—'}</div>
+      </div>
+      <button onclick="removeCareTeamMember('${pid}','${m.staffId}')" style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;color:var(--red)">✕ Remove</button>
+    </div>`;
+
+  const staffCard = (s, i, role) => {
+    const inTeam = p.careTeam.find(t => t.staffId === String(s.id));
+    const load = S.patients.filter(pt => {
+      const team = pt.careTeam || [];
+      return team.find(t => t.staffId === String(s.id)) || String(pt.doctorId) === String(s.id) || String(pt.nurseId) === String(s.id);
+    }).length;
+    const pct = Math.min(100, load * 12);
+    const bg = colors[i % colors.length];
+    return `<div onclick="${inTeam ? '' : `addCareTeamMember('${pid}','${s.id}','${role}')`}"
+      style="border:2px solid ${inTeam?'#00B4A6':'#e2e8f0'};border-radius:10px;padding:10px 12px;cursor:${inTeam?'default':'pointer'};background:${inTeam?'#E0F7FA':'white'};opacity:${inTeam?'0.6':'1'}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:50%;background:${bg};color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${s.name.charAt(0)}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:13px">${s.name} ${inTeam?'<span style="font-size:10px;background:#00B4A6;color:white;padding:1px 6px;border-radius:8px">In Team</span>':''}</div>
+          <div style="font-size:11px;color:#64748b">${s.specialty||s.dept||'—'}</div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:#64748b">
+          ${load} patients<br>
+          <div style="height:3px;width:60px;background:#e2e8f0;border-radius:2px;margin-top:3px"><div style="height:3px;background:${pct>70?'#e53e3e':pct>40?'#dd6b20':'#00B4A6'};border-radius:2px;width:${pct}%"></div></div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  showModal(`<div class="modal" style="max-width:600px">
     <div class="modal-header">
-      <h2>👨‍⚕️ Add / Change Doctor — ${p.name}</h2>
+      <h2>👥 Manage Care Team — ${p.name}</h2>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div class="modal-body">
-      <div class="text-muted mb-3" style="font-size:13px">Select a doctor to assign. Current: <strong>${S.staff.find(s=>s.id===p.doctorId)?.name || '—'}</strong></div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${doctors.map((d, i) => {
-          const load = S.patients.filter(pt => String(pt.doctorId) === String(d.id) && pt.status === 'Active').length;
-          const pct = Math.min(100, load * 12);
-          const bg = colors[i % colors.length];
-          const isCurrent = String(p.doctorId) === String(d.id);
-          return `<div onclick="assignDoctorFromModal('${pid}','${d.id}')" style="border:2px solid ${isCurrent?'#00B4A6':'#e2e8f0'};border-radius:10px;padding:12px;cursor:pointer;background:${isCurrent?'#E0F7FA':'white'}">
-            <div style="display:flex;align-items:center;gap:12px">
-              <div style="width:42px;height:42px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;flex-shrink:0">${d.name.charAt(0)}</div>
-              <div style="flex:1">
-                <div style="font-weight:700;font-size:14px">${d.name}${isCurrent?' <span style="font-size:10px;background:#00B4A6;color:white;padding:1px 7px;border-radius:8px;margin-left:4px">Current</span>':''}</div>
-                <div style="font-size:12px;color:#64748b;margin-top:2px">🏥 ${d.specialty || d.dept || d.department || 'General Medicine'}</div>
-                <div style="font-size:11px;color:#94a3b8">Emp ID: ${d.empId || '—'}</div>
-              </div>
-              <div style="text-align:right;flex-shrink:0">
-                <div style="font-size:12px;color:#64748b">Patients: <strong>${load}</strong></div>
-                <div style="height:4px;width:70px;background:#e2e8f0;border-radius:2px;margin-top:4px"><div style="height:4px;background:${pct>70?'#e53e3e':pct>40?'#dd6b20':'#00B4A6'};border-radius:2px;width:${pct}%"></div></div>
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
+
+      <!-- Current Team -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Current Care Team</div>
+        ${teamDoctors.length === 0 && teamNurses.length === 0
+          ? '<div class="text-muted" style="font-size:13px">No care team assigned yet.</div>'
+          : [...teamDoctors, ...teamNurses].map(memberRow).join('')}
       </div>
+
+      <hr class="divider">
+
+      <!-- Add Doctors -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--indigo);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">👨‍⚕️ Add Doctor</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${doctors.map((d, i) => staffCard(d, i, 'Doctor')).join('')}
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Add Nurses -->
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--indigo);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">👩‍⚕️ Add Nurse</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${nurses.map((n, i) => staffCard(n, i, 'Nurse')).join('')}
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
     </div>
   </div>`);
 }
 
-async function assignDoctorFromModal(pid, docId) {
+async function addCareTeamMember(pid, staffId, role) {
+  const p = S.patients.find(x => x.id === pid);
+  const s = S.staff.find(x => x.id === staffId);
+  if (!p || !s) return;
+  if (!p.careTeam) p.careTeam = [];
+  // Add locally
+  if (!p.careTeam.find(t => t.staffId === String(staffId))) {
+    p.careTeam.push({ staffId: String(staffId), name: s.name, role, dept: s.specialty || s.dept || '' });
+  }
+  // Update primary doctorId/nurseId
+  if (role === 'Doctor' && !p.doctorId) p.doctorId = String(staffId);
+  if (role === 'Nurse' && !p.nurseId) p.nurseId = String(staffId);
+  try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
+  if (IS_LIVE) {
+    await apiPost('/patients/' + pid + '/team', { staff_id: staffId, role });
+  }
+  showToast(`${s.name} added to care team ✓`);
+  showManageCareTeamModal(pid); // refresh modal
+}
+
+async function removeCareTeamMember(pid, staffId) {
   const p = S.patients.find(x => x.id === pid);
   if (!p) return;
-  const doc = S.staff.find(s => s.id === docId);
-  p.doctorId = docId;
-  closeModal();
-  showToast(`Dr. ${doc?.name} assigned to ${p.name} ✓`, 'info');
+  const member = p.careTeam?.find(t => t.staffId === String(staffId));
+  p.careTeam = (p.careTeam || []).filter(t => t.staffId !== String(staffId));
+  // Update primary doctorId/nurseId if removed
+  if (String(p.doctorId) === String(staffId)) {
+    const nextDoc = p.careTeam.find(t => t.role === 'Doctor');
+    p.doctorId = nextDoc?.staffId || '';
+  }
+  if (String(p.nurseId) === String(staffId)) {
+    const nextNurse = p.careTeam.find(t => t.role === 'Nurse');
+    p.nurseId = nextNurse?.staffId || '';
+  }
   try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
-  if (IS_LIVE) await apiPatch('/patients/' + pid, { doctor_id: docId });
-  renderIPDDetail(pid);
+  if (IS_LIVE) {
+    await fetch(`${API_BASE}/patients/${pid}/team/${staffId}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + API_TOKEN } }).catch(()=>{});
+  }
+  showToast(`${member?.name || 'Staff'} removed from care team`);
+  showManageCareTeamModal(pid); // refresh modal
+}
+
+async function assignDoctorFromModal(pid, docId) {
+  await addCareTeamMember(pid, docId, 'Doctor');
 }
 
 function showAssignDoctorModal(id) {

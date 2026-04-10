@@ -169,6 +169,75 @@ app.patch('/api/patients/:id/discharge', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── CARE TEAM ─────────────────────────────────────────────────────────────────
+// Ensure table exists on startup
+if (pool) {
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS patient_care_team (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+      staff_id INTEGER REFERENCES staff(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      added_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(patient_id, staff_id)
+    )
+  `).catch(e => console.warn('care team table:', e.message));
+}
+
+// GET care team for a patient
+app.get('/api/patients/:id/team', auth, async (req, res) => {
+  if (!pool) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT ct.*, s.name, s.role as staff_role, s.department, s.specialty, s.emp_id
+       FROM patient_care_team ct
+       JOIN staff s ON s.id = ct.staff_id
+       WHERE ct.patient_id = $1
+       ORDER BY ct.added_at ASC`,
+      [req.params.id]
+    );
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ADD a staff member to care team
+app.post('/api/patients/:id/team', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    const { staff_id, role } = req.body;
+    const r = await pool.query(
+      `INSERT INTO patient_care_team(patient_id, staff_id, role)
+       VALUES($1, $2, $3)
+       ON CONFLICT(patient_id, staff_id) DO UPDATE SET role=$3
+       RETURNING *`,
+      [req.params.id, staff_id, role]
+    );
+    // Also update primary doctor_id/nurse_id on patients table for backwards compat
+    if (role === 'Doctor') {
+      await pool.query('UPDATE patients SET doctor_id=$1 WHERE id=$2', [staff_id, req.params.id]).catch(()=>{});
+    } else if (role === 'Nurse') {
+      await pool.query('UPDATE patients SET nurse_id=$1 WHERE id=$2', [staff_id, req.params.id]).catch(()=>{});
+    }
+    // Fetch staff name for socket emit
+    const staffRow = await pool.query('SELECT name, role FROM staff WHERE id=$1', [staff_id]);
+    io.emit('care_team:update', { patientId: req.params.id, action: 'add', staffId: String(staff_id), staffName: staffRow.rows[0]?.name, role });
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// REMOVE a staff member from care team
+app.delete('/api/patients/:id/team/:staffId', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No DB' });
+  try {
+    await pool.query(
+      'DELETE FROM patient_care_team WHERE patient_id=$1 AND staff_id=$2',
+      [req.params.id, req.params.staffId]
+    );
+    io.emit('care_team:update', { patientId: req.params.id, action: 'remove', staffId: req.params.staffId });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── VITALS ───────────────────────────────────────────────────────────────────
 app.get('/api/vitals/:pid', auth, async (req, res) => {
   if (!pool) return res.json([]);

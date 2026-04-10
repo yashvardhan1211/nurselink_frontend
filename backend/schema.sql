@@ -117,6 +117,16 @@ CREATE TABLE IF NOT EXISTS alerts (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Care team junction table: multiple doctors/nurses per patient
+CREATE TABLE IF NOT EXISTS patient_care_team (
+  id SERIAL PRIMARY KEY,
+  patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+  staff_id INTEGER REFERENCES staff(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,  -- 'Doctor' or 'Nurse'
+  added_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(patient_id, staff_id)
+);
+
 CREATE TABLE IF NOT EXISTS opd_queue (
   id SERIAL PRIMARY KEY,
   patient_id INTEGER REFERENCES patients(id),
