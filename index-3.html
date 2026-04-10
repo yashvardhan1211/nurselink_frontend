@@ -860,10 +860,13 @@ async function tryLoadLiveData() {
       type: a.type || 'info',
       title: a.title || a.alert_type || 'Alert',
       msg: a.message || a.msg || '',
-      time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '',
+      time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : '',
       acked: !!a.acknowledged_by
     }));
-    if (liveAlerts.length > 0) S.alerts = liveAlerts;
+    // Always replace with live data (clears demo alerts)
+    S.alerts = liveAlerts;
+    // Clear demo notifications — keep only ones added this session (no demo IDs like N1/N2/N3/N4)
+    S.notifications = S.notifications.filter(n => !['N1','N2','N3','N4'].includes(n.id));
   }
 
   if (queueRes && Array.isArray(queueRes)) {
@@ -952,15 +955,46 @@ function connectSocket() {
       if (!S.vitals[pid]) S.vitals[pid] = [];
       // Skip if already added locally
       if (S.vitals[pid].find(x => x.id === String(v.id))) return;
-      S.vitals[pid].unshift({ id:String(v.id), time:new Date(v.recorded_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}), bpSys:v.bp_sys, bpDia:v.bp_dia, pulse:v.pulse, spo2:v.spo2, temp:v.temperature, rr:v.resp_rate, gcs:v.gcs, uo:v.urine_output, glucose:v.blood_glucose, drain:v.drain_output, pain:v.pain_score, notes:v.notes, nurse:v.recorded_by_name||'Staff' });
+      const vital = { id:String(v.id), time:new Date(v.recorded_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}), bpSys:v.bp_sys, bpDia:v.bp_dia, pulse:v.pulse, spo2:v.spo2, temp:v.temperature, rr:v.resp_rate, gcs:v.gcs, uo:v.urine_output, glucose:v.blood_glucose, drain:v.drain_output, pain:v.pain_score, notes:v.notes, nurse:v.recorded_by_name||'Staff' };
+      S.vitals[pid].unshift(vital);
+      // Add notification for Doctor about new vitals
+      const p = S.patients.find(x => x.id === pid);
+      if (p) {
+        S.notifications.unshift({ id:'N'+Date.now(), role:'Doctor', title:`New Vitals: ${v.recorded_by_name||'Staff'}`, body:`${p.name} — BP ${v.bp_sys}/${v.bp_dia}, SpO2 ${v.spo2}%`, time:ts(), read:false });
+        renderNotifBadge();
+      }
       renderAll();
     });
     socket.on('alert:new', data => {
-      data.alerts.forEach(a => {
-        S.alerts.unshift({ id:'A'+Date.now()+Math.random(), patientId:String(data.patientId), type:a.type, title:a.title, msg:a.message||'', time:ts(), acked:false });
-        showToast(`${a.title}`, a.type==='critical'?'error':'warn');
+      const pid = String(data.patientId || data.patient_id || '');
+      const p = S.patients.find(x => x.id === pid);
+      (data.alerts || []).forEach(a => {
+        const alertId = String(a.id || 'A'+Date.now()+Math.random());
+        // Deduplicate
+        if (S.alerts.find(x => String(x.id) === alertId)) return;
+        const alert = { id: alertId, patientId: pid, type: a.type, title: a.title, msg: a.message || a.msg || '', time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : ts(), acked: false };
+        S.alerts.unshift(alert);
+        showToast(`${a.title}${p ? ': '+p.name : ''}`, a.type==='critical'?'error':'warn');
+        // Push to notification bell for Doctor
+        S.notifications.unshift({ id:'N'+Date.now()+Math.random(), role:'Doctor', title:`⚠ ${a.title}`, body:`${p?.name||'Patient'} — ${a.message||a.msg||''}`, time:ts(), read:false });
       });
-      renderAll();
+      renderAlertFeed();
+      renderNotifBadge();
+      try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
+    });
+    socket.on('alert:acked', data => {
+      const a = S.alerts.find(x => String(x.id) === String(data.id));
+      if (a) { a.acked = true; renderAlertFeed(); }
+    });
+    socket.on('notification:new', data => {
+      // Only add if relevant to current role
+      if (data.role && data.role !== S.currentRole) return;
+      const pid = String(data.patientId || '');
+      const p = pid ? S.patients.find(x => x.id === pid) : null;
+      const body = p ? data.body.replace(`#${pid}`, p.name) : data.body;
+      S.notifications.unshift({ id:'N'+Date.now()+Math.random(), role: data.role || S.currentRole, title: data.title, body, time: data.time ? new Date(data.time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : ts(), read: false });
+      renderNotifBadge();
+      try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
     });
     socket.on('prescription:new', rx => {
       const pid = String(rx.patient_id);

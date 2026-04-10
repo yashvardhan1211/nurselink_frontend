@@ -195,7 +195,46 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
        b.gcs||15,b.urine_output||40,b.blood_glucose||100,b.drain_output||0,
        b.pain_score||0,b.notes||'',req.user.id]
     );
-    io.emit('vitals:new', { ...r.rows[0], patient_id: pid, recorded_by_name: req.user.name });
+    const vitalsRow = { ...r.rows[0], patient_id: pid, recorded_by_name: req.user.name };
+    io.emit('vitals:new', vitalsRow);
+
+    // Auto-generate alerts from vital thresholds
+    const alerts = [];
+    const sbp = b.bp_sys, dbp = b.bp_dia, pulse = b.pulse, spo2 = b.spo2;
+    const temp = parseFloat(b.temperature)||0, rr = b.resp_rate||0, uo = b.urine_output||40;
+    if (sbp > 180)       alerts.push({ type:'critical', title:'BP CRITICAL',    message:`BP ${sbp}/${dbp} — Hypertensive Emergency` });
+    else if (sbp > 160)  alerts.push({ type:'warning',  title:'BP HIGH',        message:`BP ${sbp}/${dbp} — Elevated` });
+    if (sbp < 90)        alerts.push({ type:'critical', title:'HYPOTENSION',    message:`BP ${sbp}/${dbp} — Check for shock` });
+    if (spo2 < 92)       alerts.push({ type:'critical', title:'SpO2 CRITICAL',  message:`SpO2 ${spo2}% — Severe hypoxia` });
+    else if (spo2 < 95)  alerts.push({ type:'warning',  title:'SpO2 LOW',       message:`SpO2 ${spo2}% — Below normal` });
+    if (pulse > 130)     alerts.push({ type:'critical', title:'TACHYCARDIA',    message:`Pulse ${pulse} bpm — Severe` });
+    if (pulse < 50)      alerts.push({ type:'critical', title:'BRADYCARDIA',    message:`Pulse ${pulse} bpm` });
+    if (temp > 39.5)     alerts.push({ type:'critical', title:'HIGH FEVER',     message:`Temp ${temp}°C — Hyperpyrexia` });
+    else if (temp > 38.5)alerts.push({ type:'warning',  title:'FEVER',          message:`Temp ${temp}°C` });
+    if (uo < 20)         alerts.push({ type:'warning',  title:'OLIGURIA',       message:`Urine Output ${uo} ml/hr — Low` });
+    if (rr > 25)         alerts.push({ type:'warning',  title:'TACHYPNEA',      message:`RR ${rr}/min — High` });
+
+    if (alerts.length > 0) {
+      const savedAlerts = [];
+      for (const a of alerts) {
+        const ar = await pool.query(
+          'INSERT INTO alerts(patient_id,type,title,message) VALUES($1,$2,$3,$4) RETURNING *',
+          [pid, a.type, a.title, a.message]
+        );
+        savedAlerts.push(ar.rows[0]);
+      }
+      io.emit('alert:new', { patientId: pid, alerts: savedAlerts });
+    }
+
+    // Emit notification for new vitals entry (nurse → doctor)
+    io.emit('notification:new', {
+      role: 'Doctor',
+      title: `New Vitals: ${req.user.name}`,
+      body: `Patient #${pid} — BP ${sbp}/${dbp}, SpO2 ${spo2}%`,
+      time: new Date().toISOString(),
+      patientId: pid,
+    });
+
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -347,6 +386,15 @@ app.post('/api/chat/:pid', auth, async (req, res) => {
       sender_role: req.user.role,
     };
     io.emit('chat:message', msg);
+    // Notify the opposite role
+    const targetRole = req.user.role === 'Doctor' ? 'Nurse' : 'Doctor';
+    io.emit('notification:new', {
+      role: targetRole,
+      title: `Message from ${req.user.name}`,
+      body: `Re: Patient #${req.params.pid} — ${req.body.message?.substring(0, 60)}`,
+      time: new Date().toISOString(),
+      patientId: req.params.pid,
+    });
     res.json(msg);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -364,6 +412,7 @@ app.patch('/api/alerts/:id/acknowledge', auth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No DB' });
   try {
     const r = await pool.query('UPDATE alerts SET acknowledged_by=$1,acknowledged_at=NOW() WHERE id=$2 RETURNING *', [req.user.id, req.params.id]);
+    io.emit('alert:acked', { id: req.params.id, by: req.user.name });
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
