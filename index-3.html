@@ -1482,7 +1482,7 @@ function renderSidebar() {
       { icon:'📊', label:'Dashboard', view:'analytics' },
       { icon:'🏥', label:'My Patients', view:'patients' },
       { icon:'➕', label:'New Patient', view:'admit' },
-      { icon:'🧠', label:'AI Triage', view:'triage' },
+      { icon:'🧠', label:'Triage', view:'triage' },
       { icon:'💊', label:'Prescriptions', view:'prescriptions' },
       { icon:'🔬', label:'Lab Orders', view:'labs' },
       { icon:'⚡', label:'Alerts', view:'alerts' },
@@ -1498,7 +1498,7 @@ function renderSidebar() {
       { icon:'💊', label:'Medication MAR', view:'mar' },
       { icon:'📝', label:'Nursing Notes', view:'notes' },
       { icon:'⚡', label:'Alerts', view:'alerts' },
-      { icon:'🧠', label:'AI Triage', view:'triage' },
+      { icon:'🧠', label:'Triage', view:'triage' },
     ],
     Pharmacist: [
       { icon:'💊', label:'Prescriptions', view:'pharmacy' },
@@ -1938,10 +1938,10 @@ function renderOPDConsultTab(id, p) {
       </div>
       <div id="opd-triage-panel" style="position:sticky;top:80px">
         <div style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
-          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 Triage Score</div>
           <div style="padding:16px;text-align:center;color:#94a3b8">
             <div style="font-size:32px;margin-bottom:8px">🩺</div>
-            <div style="font-size:12px">Fill vitals &amp; click Run AI Triage</div>
+            <div style="font-size:12px">Fill vitals &amp; click Run Triage</div>
           </div>
         </div>
       </div>
@@ -2043,7 +2043,7 @@ function runOPDTriage() {
 
   panel.innerHTML = `
     <div style="border:2px solid ${sc};border-radius:10px;overflow:hidden;margin-bottom:12px">
-      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 Triage Score</div>
       <div style="padding:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-size:22px;font-weight:900;color:${sc}">${em} ${result.severity}</span>
@@ -2057,7 +2057,7 @@ function runOPDTriage() {
       </div>
     </div>
     <div id="opd-groq-insight" style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:12px">
-      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Clinical Insight</div>
       <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">
         <div style="font-size:20px;margin-bottom:6px">💬</div>Enter chief complaint above to get AI clinical insight
       </div>
@@ -2068,7 +2068,7 @@ function runOPDTriage() {
       <div style="padding:12px">${docCards}</div>
     </div>` : ''}`;
 
-  // Call Groq AI for clinical insight — debounced so it fires after user stops typing
+  // Call Clinical AI for clinical insight — debounced so it fires after user stops typing
   clearTimeout(window._groqTriageTimer);
   const ccVal = cc.trim();
   if (ccVal) {
@@ -2078,7 +2078,7 @@ function runOPDTriage() {
   } else {
     const insightEl = document.getElementById('opd-groq-insight');
     if (insightEl) insightEl.innerHTML = `
-      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Clinical Insight</div>
       <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">Enter chief complaint to get AI clinical insight</div>`;
   }
 }
@@ -2093,9 +2093,9 @@ async function runGroqTriageInsight(cc, sbp, dbp, hr, spo2, tempF, glucose, tria
 
   // Show loading
   insightEl.innerHTML = `
-    <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+    <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Clinical Insight</div>
     <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">
-      <div style="font-size:20px;margin-bottom:6px;animation:spin 1s linear infinite;display:inline-block">⚙️</div><br>Analysing with Groq AI...
+      <div style="font-size:20px;margin-bottom:6px;animation:spin 1s linear infinite;display:inline-block">⚙️</div><br>Analysing with Clinical AI...
     </div>`;
 
   const doctorList = S.staff.filter(s => s.role === 'Doctor')
@@ -2167,14 +2167,14 @@ Respond in exactly this JSON format (no markdown, no extra text):
             const badge = document.createElement('span');
             badge.className = 'groq-badge';
             badge.style.cssText = 'background:#7C3AED;color:white;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px';
-            badge.textContent = '🤖 Groq Pick';
+            badge.textContent = '🤖 Top Pick';
             recCard.querySelector('div[style*="flex:1"]')?.after(badge);
           }
         }
       }
 
       insightEl.innerHTML = `
-        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Clinical Insight</div>
         <div style="padding:14px">
           <div style="font-size:12px;line-height:1.6;color:#1A2332;margin-bottom:10px">${parsed.clinical_summary}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
@@ -2200,12 +2200,12 @@ Respond in exactly this JSON format (no markdown, no extra text):
     } else {
       // Fallback: show raw text
       insightEl.innerHTML = `
-        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Clinical Insight</div>
         <div style="padding:14px;font-size:12px;line-height:1.6;color:#1A2332">${text.substring(0,400)}</div>`;
     }
   } catch(e) {
     if (insightEl) insightEl.innerHTML = `
-      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Groq AI Clinical Insight</div>
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🤖 Clinical Insight</div>
       <div style="padding:14px;font-size:12px;color:#94a3b8">AI insight unavailable — ${e.message}</div>`;
   }
 }
@@ -2245,7 +2245,7 @@ function opdLiveTriageUpdate(id) {
   if (!hasVitals) {
     panel.innerHTML = `
       <div style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden">
-        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+        <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 Triage Score</div>
         <div style="padding:16px;text-align:center;color:#94a3b8">
           <div style="font-size:32px;margin-bottom:8px">🩺</div>
           <div style="font-size:12px">Enter vitals to see triage score</div>
@@ -2268,7 +2268,7 @@ function opdLiveTriageUpdate(id) {
 
   panel.innerHTML = `
     <div style="border:2px solid ${sc};border-radius:10px;overflow:hidden">
-      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage Score</div>
+      <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 Triage Score</div>
       <div style="padding:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-size:22px;font-weight:900;color:${sc}">${em} ${result.severity}</span>
@@ -2875,7 +2875,7 @@ function renderOverviewTab(id, p) {
 
           ${p.triageResult ? `
           <div style="border:2px solid ${p.triageResult.color};border-radius:8px;padding:12px;margin-bottom:12px;background:white">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">🧠 AI Triage Score</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">🧠 Triage Score</div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
               <div style="font-size:20px;font-weight:900;color:${p.triageResult.color}">${p.triageResult.icon} ${p.triageResult.severity}</div>
               <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${p.triageResult.color}">${p.triageResult.score}</div>
@@ -3948,7 +3948,7 @@ async function submitVitals(pid) {
   checkAlerts(pid, vital);
   const p = S.patients.find(x=>x.id===pid);
 
-  // Compute and store AI triage score on the patient
+  // Compute and store Triage score on the patient
   if (p) {
     const tr = triageScore({ age: p.age, sbp: bps, dbp: bpd, hr: pulse, spo2, rr, temp, symptoms: p.chiefComplaint });
     p.triageResult = tr;
@@ -4547,7 +4547,7 @@ function renderAdminTriageForm() {
   main.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div>
-        <div class="section-title">🧠 New Patient — AI Triage</div>
+        <div class="section-title">🧠 New Patient — Triage</div>
         <div class="section-sub">Enter patient details and vitals — AI will score and recommend a doctor</div>
       </div>
     </div>
@@ -4571,7 +4571,7 @@ function renderAdminTriageForm() {
           </div>
         </div>
         <div class="card">
-          <div class="card-header" style="background:var(--navy);color:white"><h3>🧠 AI Triage — Vitals</h3><span style="font-size:11px;opacity:0.6">Updates score live</span></div>
+          <div class="card-header" style="background:var(--navy);color:white"><h3>🧠 Triage — Vitals</h3><span style="font-size:11px;opacity:0.6">Updates score live</span></div>
           <div class="card-body">
             <div class="form-row">
               <div class="form-group"><label class="form-label">Systolic BP</label><input class="form-control" id="at-sbp" type="number" placeholder="120" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()"></div>
@@ -8982,7 +8982,7 @@ function renderTriagePage() {
   const main = document.getElementById('main');
   const doctors = S.staff.filter(s => s.role === 'Doctor');
   main.innerHTML = `
-    <div class="section-title">🧠 AI Triage & Doctor Assignment</div>
+    <div class="section-title">🧠 Triage & Doctor Assignment</div>
     <div class="section-sub">Enter patient vitals and symptoms — AI will score severity and recommend a specialist.</div>
     <div class="grid-2" style="gap:20px;align-items:start">
       <div>
@@ -9057,7 +9057,7 @@ function renderTriagePage() {
               <input class="form-control" id="tr-history" placeholder="e.g. Diabetes, Hypertension, CAD...">
             </div>
             <button class="btn btn-primary w-full" style="justify-content:center;margin-top:4px" onclick="runTriage()">
-              🧠 Run AI Triage
+              🧠 Run Triage
             </button>
           </div>
         </div>
@@ -9066,7 +9066,7 @@ function renderTriagePage() {
         <div class="card" style="border:2px dashed var(--border);background:var(--panel)">
           <div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted)">
             <div style="font-size:48px;margin-bottom:12px">🩺</div>
-            <div style="font-weight:600">Fill in vitals and click Run AI Triage</div>
+            <div style="font-weight:600">Fill in vitals and click Run Triage</div>
             <div style="font-size:12px;margin-top:6px">Results will appear here</div>
           </div>
         </div>
