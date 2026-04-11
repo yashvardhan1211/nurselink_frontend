@@ -9950,6 +9950,9 @@ function switchLoginTab(tab) {
   document.getElementById('tab-hospital').style.color = isPatient ? 'var(--text-muted)' : 'white';
   document.getElementById('tab-patient').style.background = isPatient ? 'var(--teal)' : 'white';
   document.getElementById('tab-patient').style.color = isPatient ? 'white' : 'var(--text-muted)';
+  // Clear any stale errors when switching tabs
+  const errEl = document.getElementById('patient-login-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 }
 
 async function patientLogin() {
