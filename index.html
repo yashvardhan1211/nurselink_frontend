@@ -864,9 +864,13 @@ async function tryLoadLiveData() {
       time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : '',
       acked: !!a.acknowledged_by
     }));
-    // Only replace if server returned data — prevents wiping on empty response
-    if (liveAlerts.length > 0) S.alerts = liveAlerts;
+    // Always replace with live data — also clears demo alerts (A1-A4) that have fake patient IDs
+    S.alerts = liveAlerts;
     // Clear demo notifications (hardcoded INIT ones)
+    S.notifications = S.notifications.filter(n => !['N1','N2','N3','N4'].includes(n.id));
+  } else {
+    // Server returned nothing — still clear demo alerts so stale data doesn't show
+    S.alerts = S.alerts.filter(a => !['A1','A2','A3','A4'].includes(a.id));
     S.notifications = S.notifications.filter(n => !['N1','N2','N3','N4'].includes(n.id));
   }
 

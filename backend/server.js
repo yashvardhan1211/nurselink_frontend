@@ -273,6 +273,10 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
     // Log audit
     logAudit(req.user.id, req.user.name, req.user.role, `Recorded vitals for patient #${pid}`, 'vitals', String(r.rows[0].id), { bp: `${b.bp_sys}/${b.bp_dia}`, spo2: b.spo2, pulse: b.pulse }, req.ip);
 
+    // Fetch patient name once — used for both alerts and notification
+    const ptRow = await pool.query('SELECT name FROM patients WHERE id=$1', [pid]).catch(() => ({ rows: [] }));
+    const patientName = ptRow.rows[0]?.name || '';
+
     // Auto-generate alerts from vital thresholds
     const alerts = [];
     const sbp = b.bp_sys, dbp = b.bp_dia, pulse = b.pulse, spo2 = b.spo2;
@@ -291,9 +295,6 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
 
     if (alerts.length > 0) {
       const savedAlerts = [];
-      // Fetch patient name for the emit
-      const ptRow = await pool.query('SELECT name FROM patients WHERE id=$1', [pid]).catch(() => ({ rows: [] }));
-      const patientName = ptRow.rows[0]?.name || '';
       for (const a of alerts) {
         const ar = await pool.query(
           'INSERT INTO alerts(patient_id,type,title,message) VALUES($1,$2,$3,$4) RETURNING *',
@@ -304,14 +305,14 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
       io.emit('alert:new', { patientId: String(pid), patientName, alerts: savedAlerts });
     }
 
-    // Emit notification for new vitals entry (nurse → doctor)
+    // Always emit notification for new vitals entry (nurse → doctor)
     io.emit('notification:new', {
       role: 'Doctor',
       title: `New Vitals: ${req.user.name}`,
-      body: `${ptRow.rows[0]?.name || 'Patient #'+pid} — BP ${sbp}/${dbp}, SpO2 ${spo2}%`,
+      body: `${patientName || 'Patient #'+pid} — BP ${sbp}/${dbp}, SpO2 ${spo2}%`,
       time: new Date().toISOString(),
       patientId: String(pid),
-      patientName: ptRow.rows[0]?.name || '',
+      patientName,
     });
 
     res.json(r.rows[0]);
