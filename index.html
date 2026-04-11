@@ -600,7 +600,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;background:var(--teal);" onclick="patientLogin()" id="patient-login-btn">Enter Patient Portal</button>
 
-      <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-muted)">Default password is <strong>password</strong> — change it after first login</div>
+      <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-muted)">Default password is <strong>password</strong> — change it after first login<br>Demo: phone <strong>9999999999</strong>, password <strong>demo</strong></div>
 
     </div>
 
@@ -9955,7 +9955,7 @@ function switchLoginTab(tab) {
 async function patientLogin() {
   const rawPhone = document.getElementById('patient-phone').value.trim();
   const phone = rawPhone.replace(/\D/g, '').slice(-10);
-  const password = document.getElementById('patient-password').value;
+  const password = document.getElementById('patient-password').value || 'password';
   const btn = document.getElementById('patient-login-btn');
   const errEl = document.getElementById('patient-login-error');
   errEl.style.display = 'none';
@@ -9967,13 +9967,39 @@ async function patientLogin() {
     return;
   }
 
+  // Demo patient — phone 9999999999, password: demo
+  if (phone === '9999999999' && password === 'demo') {
+    window._patientUser = { name: 'Demo Patient', phone, ehrId: 'DEMO-001', patientId: 'DEMO' };
+    window._patientId = 'DEMO';
+    IS_LIVE = false;
+    S.currentRole = 'Patient';
+    // Seed demo patient data
+    S.patients = S.patients.filter(p => p.id !== 'DEMO');
+    S.patients.push({ id:'DEMO', name:'Demo Patient', age:35, gender:'M', phone:'9999999999', ehrId:'DEMO-001', diagnosis:'Hypertension', status:'Active', bed:'A-1', admitTime:'01/04/2026 09:00', allergies:'None Known', bloodGroup:'O+' });
+    S.prescriptions['DEMO'] = [
+      { id:'RX-D1', drug:'Tab. Amlodipine', dose:'5mg', route:'Oral', freq:'OD', duration:'30 days', instructions:'With food', prescribedBy:'Dr. Arjun Mehta', time:'01/04/2026 09:30', status:'active' },
+      { id:'RX-D2', drug:'Tab. Metformin', dose:'500mg', route:'Oral', freq:'BD', duration:'30 days', instructions:'After meals', prescribedBy:'Dr. Arjun Mehta', time:'01/04/2026 09:30', status:'active' },
+    ];
+    S.labOrders['DEMO'] = [
+      { id:'L-D1', test:'CBC', category:'Haematology', priority:'Routine', status:'Result Available', result:'Hb: 13.2 g/dL, WBC: 8500/µL', resultStatus:'Normal', orderedBy:'Dr. Arjun Mehta', time:'01/04/2026 10:00', reportUrl:null },
+      { id:'L-D2', test:'Blood Sugar Fasting', category:'Biochemistry', priority:'Routine', status:'Result Available', result:'98 mg/dL [Ref: 70-100]', resultStatus:'Normal', orderedBy:'Dr. Arjun Mehta', time:'01/04/2026 10:00', reportUrl:null },
+    ];
+    S.consultNotes['DEMO'] = [
+      { id:'C-D1', time:'01/04/2026 09:30', by:'Dr. Arjun Mehta', subjective:'Patient c/o mild headache and fatigue', objective:'BP 145/90, Pulse 78', assessment:'Hypertension — well controlled', plan:'Continue Amlodipine, review in 1 month, low salt diet' },
+    ];
+    showApp(false);
+    document.getElementById('demo-badge').style.display = 'block';
+    renderAll();
+    return;
+  }
+
   btn.textContent = 'Signing in...'; btn.disabled = true;
 
   try {
-    const res = await fetch('https://nurselink-backend-8pr3.onrender.com/api/auth/patient-login', {
+    const res = await fetch(API_BASE + '/auth/patient-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, password: password || 'password' })
+      body: JSON.stringify({ phone, password })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -9982,7 +10008,6 @@ async function patientLogin() {
       return;
     }
 
-    // Store patient token and identity
     API_TOKEN = data.token;
     localStorage.setItem('NL_PATIENT_JWT', data.token);
     window._patientUser = { name: data.name, phone, ehrId: data.ehrId, patientId: data.patientId };
@@ -9994,13 +10019,12 @@ async function patientLogin() {
     document.getElementById('demo-badge').style.display = 'none';
     document.getElementById('live-badge').style.display = 'block';
 
-    // Load patient data
     await loadPatientPortalData(data.patientId);
     renderAll();
   } catch(e) {
-    errEl.textContent = 'Connection error. Please try again.';
-    errEl.style.display = 'block';
     console.error('patientLogin error:', e);
+    errEl.textContent = 'Server unreachable. Use demo: phone 9999999999, password: demo';
+    errEl.style.display = 'block';
   } finally {
     btn.textContent = 'Enter Patient Portal'; btn.disabled = false;
   }
