@@ -574,31 +574,33 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
       <div style="background:#E0F7FA;border-radius:10px;padding:14px;margin-bottom:16px;font-size:12px;color:#00838F;border-left:3px solid var(--teal)">
 
-        <strong>Patient Portal</strong> — Access your prescriptions, discharge summary, and AI health assistant.<br>
+        <strong>Patient Portal</strong> — View your prescriptions, lab reports and discharge summary.<br>
 
-        <span style="opacity:0.8">Use your registered email: <strong>patient@vyasa.in</strong></span>
+        <span style="opacity:0.8">Login with your registered mobile number.</span>
+
+      </div>
+
+      <div id="patient-login-error" style="display:none;background:#FFEBEE;color:#C62828;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;border-left:3px solid #C62828;"></div>
+
+      <div class="form-group">
+
+        <label class="form-label">Mobile Number</label>
+
+        <input class="form-control" id="patient-phone" type="tel" placeholder="10-digit mobile number" onkeydown="if(event.key==='Enter')patientLogin()">
 
       </div>
 
       <div class="form-group">
 
-        <label class="form-label">Patient Email</label>
+        <label class="form-label">Password</label>
 
-        <input class="form-control" id="patient-email" type="email" placeholder="patient@vyasa.in" value="patient@vyasa.in">
-
-      </div>
-
-      <div class="form-group">
-
-        <label class="form-label">Date of Birth (as password)</label>
-
-        <input class="form-control" id="patient-dob" type="text" placeholder="DD/MM/YYYY or your name" value="patient123">
+        <input class="form-control" id="patient-password" type="password" placeholder="Default: password" value="password" onkeydown="if(event.key==='Enter')patientLogin()">
 
       </div>
 
-      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;background:var(--teal);" onclick="patientLogin()">Enter Patient Portal</button>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;background:var(--teal);" onclick="patientLogin()" id="patient-login-btn">Enter Patient Portal</button>
 
-      <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-muted)">Demo: any credentials work for the patient portal</div>
+      <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-muted)">Default password is <strong>password</strong> — change it after first login</div>
 
     </div>
 
@@ -722,7 +724,26 @@ async function startup() {
     statusEl.innerHTML = '<span style="color:#546E7A">● Server offline — demo mode available</span>';
   }
 
-  // Check saved token
+  // Check saved patient token first
+  const savedPatient = localStorage.getItem('NL_PATIENT_JWT');
+  if (savedPatient) {
+    try {
+      const payload = JSON.parse(atob(savedPatient.split('.')[1]));
+      if (payload.role === 'Patient' && payload.id) {
+        API_TOKEN = savedPatient;
+        window._patientUser = { name: payload.name, phone: payload.phone, ehrId: payload.ehrId, patientId: payload.id };
+        window._patientId = String(payload.id);
+        IS_LIVE = true;
+        S.currentRole = 'Patient';
+        await loadPatientPortalData(payload.id);
+        showApp(true);
+        document.getElementById('demo-badge').style.display = 'none';
+        return;
+      }
+    } catch(e) { localStorage.removeItem('NL_PATIENT_JWT'); }
+  }
+
+  // Check saved staff token
   const saved = localStorage.getItem('NL_JWT');
   if (saved) {
     API_TOKEN = saved;
@@ -1253,13 +1274,19 @@ async function refreshLiveData() {
 
 function logout() {
   localStorage.removeItem('NL_JWT');
+  localStorage.removeItem('NL_PATIENT_JWT');
   API_TOKEN = null;
   IS_LIVE = false;
+  window._patientUser = null;
+  window._patientId = null;
+  S.currentRole = 'Doctor';
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-error').style.display = 'none';
   document.getElementById('login-btn').textContent = 'Sign In';
   document.getElementById('login-btn').disabled = false;
+  // Reset to hospital staff tab
+  switchLoginTab('hospital');
 }
 
 // Wire up Enter key on login
@@ -9915,29 +9942,92 @@ function switchLoginTab(tab) {
   document.getElementById('tab-patient').style.color = isPatient ? 'white' : 'var(--text-muted)';
 }
 
-function patientLogin() {
-  const email = document.getElementById('patient-email').value.trim() || 'patient@vyasa.in';
-  // Store patient identity
-  window._patientUser = {
-    name: email.split('@')[0].replace(/\./g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
-    email: email
-  };
-  IS_LIVE = false;
-  S.currentRole = 'Patient';
-  showApp(false);
-  document.getElementById('demo-badge').style.display = 'none';
-  renderAll();
+async function patientLogin() {
+  const phone = document.getElementById('patient-phone').value.trim();
+  const password = document.getElementById('patient-password').value;
+  const btn = document.getElementById('patient-login-btn');
+  const errEl = document.getElementById('patient-login-error');
+  errEl.style.display = 'none';
+
+  if (!phone) { errEl.textContent = 'Please enter your mobile number.'; errEl.style.display = 'block'; return; }
+
+  btn.textContent = 'Signing in...'; btn.disabled = true;
+
+  try {
+    const res = await fetch(API_BASE + '/auth/patient-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+
+    // Store patient token and identity
+    API_TOKEN = data.token;
+    localStorage.setItem('NL_PATIENT_JWT', data.token);
+    window._patientUser = { name: data.name, phone, ehrId: data.ehrId, patientId: data.patientId };
+    window._patientId = String(data.patientId);
+
+    IS_LIVE = true;
+    S.currentRole = 'Patient';
+    showApp(true);
+    document.getElementById('demo-badge').style.display = 'none';
+    document.getElementById('live-badge').style.display = 'block';
+
+    // Load patient data
+    await loadPatientPortalData(data.patientId);
+    renderAll();
+  } catch(e) {
+    errEl.textContent = e.message || 'Could not connect to server.';
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = 'Enter Patient Portal'; btn.disabled = false;
+  }
+}
+
+async function loadPatientPortalData(patientId) {
+  try {
+    const res = await fetch(API_BASE + '/patient-portal/' + patientId);
+    const data = await res.json();
+    if (!data.patient) return;
+    const pid = String(patientId);
+    // Store in S state
+    if (!S.patients.find(p => p.id === pid)) {
+      S.patients.push({
+        id: pid, name: data.patient.name, age: data.patient.age, gender: data.patient.gender,
+        phone: data.patient.phone, ehrId: data.patient.ehr_id, diagnosis: data.patient.diagnosis,
+        status: data.patient.status, bed: data.patient.bed,
+        admitTime: data.patient.admit_time ? new Date(data.patient.admit_time).toLocaleString('en-IN') : '',
+        dischargeTime: data.patient.discharge_time ? new Date(data.patient.discharge_time).toLocaleString('en-IN') : '',
+        dischargeCondition: data.patient.discharge_condition || '',
+        allergies: data.patient.allergies || '', bloodGroup: data.patient.blood_group || '',
+      });
+    }
+    S.prescriptions[pid] = (data.prescriptions||[]).map(r => ({
+      id: String(r.id), drug: r.drug, dose: r.dose, route: r.route, freq: r.frequency,
+      duration: r.duration, instructions: r.instructions,
+      prescribedBy: r.prescribed_by_name || 'Doctor',
+      time: new Date(r.created_at).toLocaleString('en-IN'), status: r.status
+    }));
+    S.labOrders[pid] = (data.labs||[]).map(l => ({
+      id: String(l.id), test: l.test_name, category: l.category, priority: l.priority,
+      status: l.status, result: l.result || '', resultStatus: l.result_status || '',
+      reportUrl: l.report_url || null, reportName: l.report_name || null,
+      orderedBy: l.ordered_by_name || 'Doctor',
+      time: new Date(l.created_at).toLocaleString('en-IN')
+    }));
+    S.consultNotes[pid] = (data.notes||[]).map(n => ({
+      id: String(n.id), time: new Date(n.created_at).toLocaleString('en-IN'),
+      by: n.written_by_name || 'Doctor',
+      subjective: n.subjective, objective: n.objective, assessment: n.assessment, plan: n.plan
+    }));
+  } catch(e) { console.warn('Patient portal data load:', e.message); }
 }
 
 function renderPatientRxPage() {
   const main = document.getElementById('main');
-  // Collect all prescriptions across all patients for demo
-  const allRx = [];
-  S.patients.forEach(p => {
-    (S.prescriptions[p.id] || []).forEach(rx => {
-      allRx.push({ ...rx, patientName: p.name, patientId: p.id });
-    });
-  });
+  const pid = window._patientId;
+  const allRx = pid ? (S.prescriptions[pid] || []) : [];
 
   if (!allRx.length) {
     main.innerHTML = `
@@ -9960,7 +10050,7 @@ function renderPatientRxPage() {
     return `
       <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:white">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-weight:700;font-size:15px">💊 ${rx.drug || rx.name || 'Medication'}</div>
+          <div style="font-weight:700;font-size:15px">💊 ${rx.drug || 'Medication'}</div>
           <span style="background:${statusBg};color:${statusColor};font-size:10px;font-weight:700;padding:3px 10px;border-radius:10px;text-transform:uppercase">${rx.status || 'active'}</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:var(--text-muted)">
@@ -9970,7 +10060,7 @@ function renderPatientRxPage() {
           <div>Duration: <strong style="color:var(--text)">${rx.duration || '—'}</strong></div>
         </div>
         ${rx.instructions ? `<div style="margin-top:8px;font-size:12px;background:#FFF8E1;padding:6px 10px;border-radius:6px;color:#F57C00">📋 ${rx.instructions}</div>` : ''}
-        <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">Prescribed: ${rx.date || rx.time || 'Recently'} · Patient: ${rx.patientName}</div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">Prescribed by ${rx.prescribedBy || 'Doctor'} · ${rx.time || ''}</div>
       </div>`;
   };
 
@@ -10080,15 +10170,12 @@ async function renderPatientLabsPage() {
 
 function renderPatientDischargePage() {
   const main = document.getElementById('main');
-  // Filter to only the logged-in patient's discharged records
-  const myEmail = window._patientUser?.email || '';
-  const discharged = S.patients.filter(p => p.status === 'Discharged' &&
-    (!myEmail || (p.email && p.email.toLowerCase() === myEmail.toLowerCase()) || !window._patientUser));
+  const pid = window._patientId;
+  const p = pid ? S.patients.find(x => x.id === pid) : null;
 
-  if (!discharged.length) {
+  if (!p) {
     main.innerHTML = `
       <div class="section-title">📄 Discharge Summary</div>
-      <div class="section-sub">Your hospital discharge records</div>
       <div class="card"><div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted)">
         <div style="font-size:48px;margin-bottom:12px">📄</div>
         <div style="font-weight:600">No discharge records yet</div>
@@ -10097,90 +10184,141 @@ function renderPatientDischargePage() {
     return;
   }
 
+  const rx = (S.prescriptions[pid] || []).filter(r => r.status === 'active');
+  const notes = (S.consultNotes[pid] || []);
+  const vitals = (S.vitals[pid] || [])[0];
+  const labs = (S.labOrders[pid] || []).filter(l => l.result);
+  const isDisc = p.status === 'Discharged';
+
   main.innerHTML = `
-    <div class="section-title">📄 Discharge Summary</div>
-    <div class="section-sub">Your hospital discharge records</div>
-    ${discharged.map(p => {
-      const doc = S.staff.find(s => String(s.id) === String(p.doctorId));
-      const rx  = (S.prescriptions[p.id] || []).filter(r => r.status === 'active');
-      const vitals = (S.vitals[p.id] || [])[0];
-      const notes = (S.consultNotes[p.id] || []);
-      const lastNote = notes[notes.length - 1];
-      return `
-        <div class="card mb-4" style="border:2px solid var(--teal)">
-          <div style="background:var(--navy);color:white;padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-weight:700;font-size:16px">${p.name}</div>
-              <div style="font-size:12px;opacity:0.7">Age ${p.age} · ${p.gender === 'M' ? 'Male' : p.gender === 'F' ? 'Female' : 'Other'} · ${p.ehrId || p.id}</div>
-            </div>
-            <div style="text-align:right">
-              <div style="background:var(--success);color:white;font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">DISCHARGED</div>
-              <div style="font-size:11px;opacity:0.6;margin-top:4px">${p.dischargeDate || p.admitDate || 'Recently'}</div>
-            </div>
+    <div class="section-title">📄 ${isDisc ? 'Discharge Summary' : 'My Health Record'}</div>
+    <div class="section-sub">${p.ehrId || ''}</div>
+
+    <div class="card mb-4" style="border:2px solid var(--teal)">
+      <div style="background:var(--navy);color:white;padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-weight:700;font-size:16px">${p.name}</div>
+          <div style="font-size:12px;opacity:0.7">Age ${p.age||'—'} · ${p.gender==='M'?'Male':p.gender==='F'?'Female':'—'} · ${p.ehrId||''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="background:${isDisc?'var(--success)':'var(--teal)'};color:white;font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${isDisc?'DISCHARGED':'ADMITTED'}</div>
+          <div style="font-size:11px;opacity:0.6;margin-top:4px">${isDisc?(p.dischargeTime||''):(p.admitTime||'')}</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="grid-2" style="gap:16px;margin-bottom:16px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Diagnosis</div>
+            <div style="font-weight:600">${p.diagnosis || '—'}</div>
           </div>
-          <div class="card-body">
-            <div class="grid-2" style="gap:16px;margin-bottom:16px">
-              <div>
-                <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">Treating Doctor</div>
-                <div style="font-weight:600">${doc ? doc.name : 'Not assigned'}</div>
-                <div style="font-size:12px;color:var(--text-muted)">${doc ? (d.specialty||d.dept||d.department||'General Medicine') : ''}</div>
-              </div>
-              <div>
-                <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">Diagnosis</div>
-                <div style="font-weight:600">${p.diagnosis || p.chiefComplaint || 'See notes'}</div>
-              </div>
-            </div>
-
-            ${vitals ? `
-            <div style="margin-bottom:16px">
-              <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Last Recorded Vitals</div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px">
-                ${vitals.bp ? `<span class="vital-pill">BP: ${vitals.bp}</span>` : ''}
-                ${vitals.hr ? `<span class="vital-pill">HR: ${vitals.hr} bpm</span>` : ''}
-                ${vitals.spo2 ? `<span class="vital-pill">SpO2: ${vitals.spo2}%</span>` : ''}
-                ${vitals.temp ? `<span class="vital-pill">Temp: ${vitals.temp}°C</span>` : ''}
-              </div>
-            </div>` : ''}
-
-            ${rx.length ? `
-            <div style="margin-bottom:16px">
-              <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Discharge Medications</div>
-              ${rx.map(r => `
-                <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel);border-radius:8px;margin-bottom:6px;font-size:13px">
-                  <span>💊</span>
-                  <span style="font-weight:600">${r.drug || r.name}</span>
-                  <span style="color:var(--text-muted)">${r.dose || ''} · ${r.freq || r.frequency || ''} · ${r.duration || ''}</span>
-                </div>`).join('')}
-            </div>` : ''}
-
-            ${lastNote ? `
-            <div style="margin-bottom:16px">
-              <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Doctor's Notes</div>
-              <div style="background:var(--panel);border-radius:8px;padding:12px;font-size:13px;line-height:1.6">${lastNote.note || lastNote.text || lastNote}</div>
-            </div>` : ''}
-
-            <div style="background:#E8F5E9;border-radius:10px;padding:14px;font-size:12px;color:var(--success);border-left:3px solid var(--success)">
-               <strong>Follow-up:</strong> Please visit your doctor within 7 days of discharge. Take all medications as prescribed and return immediately if symptoms worsen.
-            </div>
-
-            <div style="display:flex;gap:10px;margin-top:16px">
-              <button class="btn btn-outline btn-sm" onclick="printPatientDischarge('${p.id}')">🖨 Print Summary</button>
-              <button class="btn btn-primary btn-sm" onclick="setNav('patientai');renderMain()">🤖 Ask AI about my report</button>
-            </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">${isDisc?'Discharge Condition':'Status'}</div>
+            <div style="font-weight:600;color:var(--success)">${isDisc?(p.dischargeCondition||'Stable'):p.status}</div>
           </div>
-        </div>`;
-    }).join('')}`;
+        </div>
+
+        ${vitals ? `
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Last Recorded Vitals</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <span class="vital-pill">BP ${vitals.bpSys}/${vitals.bpDia}</span>
+            <span class="vital-pill">SpO2 ${vitals.spo2}%</span>
+            <span class="vital-pill">Pulse ${vitals.pulse}</span>
+            <span class="vital-pill">Temp ${vitals.temp}°C</span>
+          </div>
+        </div>` : ''}
+
+        ${rx.length ? `
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Medications</div>
+          ${rx.map(r => `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel);border-radius:8px;margin-bottom:6px;font-size:13px">
+              <span>💊</span>
+              <span style="font-weight:600">${r.drug}</span>
+              <span style="color:var(--text-muted)">${r.dose||''} · ${r.freq||''} · ${r.duration||''}</span>
+            </div>`).join('')}
+        </div>` : ''}
+
+        ${labs.length ? `
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Lab Results</div>
+          ${labs.map(l => `
+            <div style="padding:8px 12px;background:var(--panel);border-radius:8px;margin-bottom:6px;font-size:12px">
+              <div style="font-weight:600">${l.test} <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:${l.resultStatus==='Critical'?'#FFEBEE':l.resultStatus==='Abnormal'?'#FFF3E0':'#E8F5E9'};color:${l.resultStatus==='Critical'?'var(--red)':l.resultStatus==='Abnormal'?'var(--warn)':'var(--success)'}">${l.resultStatus||'Normal'}</span></div>
+              <div style="font-family:var(--mono);margin-top:4px">${l.result}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        ${notes.length ? `
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Doctor's Notes</div>
+          ${notes.slice(0,2).map(n => `
+            <div style="background:var(--panel);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;margin-bottom:8px">
+              ${n.assessment ? `<div><strong>Assessment:</strong> ${n.assessment}</div>` : ''}
+              ${n.plan ? `<div style="margin-top:4px"><strong>Plan:</strong> ${n.plan}</div>` : ''}
+              <div style="font-size:11px;color:var(--text-muted);margin-top:6px">${n.by||'Doctor'} · ${n.time||''}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <div style="background:#E8F5E9;border-radius:10px;padding:14px;font-size:12px;color:var(--success);border-left:3px solid var(--success)">
+          ✅ <strong>Follow-up:</strong> Please visit your doctor as advised. Take all medications as prescribed.
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" onclick="printPatientDischarge()">🖨 Print Summary</button>
+          <button class="btn btn-outline btn-sm" onclick="showChangePasswordModal()">🔑 Change Password</button>
+        </div>
+      </div>
+    </div>`;
 }
 
-function printPatientDischarge(pid) {
+function printPatientDischarge() {
   const content = document.querySelector('.card[style*="border:2px solid var(--teal)"]');
   if (!content) return;
   const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Discharge Summary</title>
+  win.document.write(`<!DOCTYPE html><html><head><title>Health Record</title>
     <style>body{font-family:'DM Sans',sans-serif;padding:32px;max-width:700px;margin:0 auto;color:#1A2332;line-height:1.6}
     @media print{@page{margin:1.5cm}}</style></head>
     <body>${content.outerHTML}<script>window.onload=function(){window.print();}<\/script></body></html>`);
   win.document.close();
+}
+
+function showChangePasswordModal() {
+  showModal(`<div class="modal" style="max-width:420px">
+    <div class="modal-header"><h2>🔑 Change Password</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div id="cp-error" style="display:none;background:#FFEBEE;color:#C62828;padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px"></div>
+      <div class="form-group"><label class="form-label">Current Password</label><input class="form-control" id="cp-old" type="password" placeholder="Current password"></div>
+      <div class="form-group"><label class="form-label">New Password</label><input class="form-control" id="cp-new" type="password" placeholder="New password (min 6 chars)"></div>
+      <div class="form-group"><label class="form-label">Confirm New Password</label><input class="form-control" id="cp-confirm" type="password" placeholder="Confirm new password"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="changePatientPassword()">Change Password</button>
+    </div>
+  </div>`);
+}
+
+async function changePatientPassword() {
+  const oldPwd = document.getElementById('cp-old').value;
+  const newPwd = document.getElementById('cp-new').value;
+  const confirm = document.getElementById('cp-confirm').value;
+  const errEl = document.getElementById('cp-error');
+  errEl.style.display = 'none';
+  if (!oldPwd || !newPwd) { errEl.textContent = 'All fields required.'; errEl.style.display = 'block'; return; }
+  if (newPwd.length < 6) { errEl.textContent = 'New password must be at least 6 characters.'; errEl.style.display = 'block'; return; }
+  if (newPwd !== confirm) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; return; }
+  try {
+    const res = await fetch(API_BASE + '/auth/patient-change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: window._patientUser?.phone, oldPassword: oldPwd, newPassword: newPwd })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    closeModal();
+    showToast('Password changed successfully ✓', 'info');
+  } catch(e) { errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 
 </script>

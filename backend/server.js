@@ -47,6 +47,64 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── PATIENT AUTH ──────────────────────────────────────────────────────────────
+app.post('/api/auth/patient-login', async (req, res) => {
+  const { phone, password } = req.body;
+  if (!pool) return res.status(503).json({ error: 'No database' });
+  try {
+    const r = await pool.query(
+      `SELECT pa.*, p.name, p.ehr_id, p.age, p.gender, p.diagnosis, p.status, p.bed, p.admit_time, p.discharge_time, p.discharge_condition
+       FROM patient_accounts pa
+       JOIN patients p ON p.id = pa.patient_id
+       WHERE pa.phone = $1`,
+      [phone?.trim()]
+    );
+    if (!r.rows[0]) return res.status(401).json({ error: 'Phone number not registered' });
+    const ok = await bcrypt.compare(password, r.rows[0].password_hash);
+    if (!ok) return res.status(401).json({ error: 'Incorrect password' });
+    const token = jwt.sign(
+      { id: r.rows[0].patient_id, role: 'Patient', name: r.rows[0].name, phone: r.rows[0].phone, ehrId: r.rows[0].ehr_id },
+      JWT_SECRET, { expiresIn: '7d' }
+    );
+    res.json({ token, patientId: r.rows[0].patient_id, name: r.rows[0].name, ehrId: r.rows[0].ehr_id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Change patient password
+app.post('/api/auth/patient-change-password', async (req, res) => {
+  const { phone, oldPassword, newPassword } = req.body;
+  if (!pool) return res.status(503).json({ error: 'No database' });
+  try {
+    const r = await pool.query('SELECT * FROM patient_accounts WHERE phone=$1', [phone?.trim()]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Account not found' });
+    const ok = await bcrypt.compare(oldPassword, r.rows[0].password_hash);
+    if (!ok) return res.status(401).json({ error: 'Incorrect current password' });
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE patient_accounts SET password_hash=$1 WHERE phone=$2', [newHash, phone?.trim()]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET patient's own data (prescriptions, labs, discharge)
+app.get('/api/patient-portal/:patientId', async (req, res) => {
+  if (!pool) return res.json({});
+  const pid = req.params.patientId;
+  try {
+    const [ptRes, rxRes, labsRes, dischargeRes] = await Promise.all([
+      pool.query('SELECT * FROM patients WHERE id=$1', [pid]),
+      pool.query(`SELECT pr.*, s.name as prescribed_by_name FROM prescriptions pr LEFT JOIN staff s ON s.id=pr.prescribed_by_id WHERE pr.patient_id=$1 ORDER BY pr.created_at DESC`, [pid]),
+      pool.query(`SELECT lo.*, s.name as ordered_by_name FROM lab_orders lo LEFT JOIN staff s ON s.id=lo.ordered_by_id WHERE lo.patient_id=$1 ORDER BY lo.created_at DESC`, [pid]),
+      pool.query(`SELECT cn.*, s.name as written_by_name FROM consult_notes cn LEFT JOIN staff s ON s.id=cn.created_by_id WHERE cn.patient_id=$1 ORDER BY cn.created_at DESC`, [pid]),
+    ]);
+    res.json({
+      patient: ptRes.rows[0] || null,
+      prescriptions: rxRes.rows,
+      labs: labsRes.rows,
+      notes: dischargeRes.rows,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── STAFF ────────────────────────────────────────────────────────────────────
 app.get('/api/staff', auth, async (req, res) => {
   if (!pool) return res.json([]);
@@ -132,6 +190,19 @@ app.post('/api/patients', auth, async (req, res) => {
     );
     io.emit('patient:admitted', { patientId: r.rows[0].id });
     logAudit(req.user.id, req.user.name, req.user.role, `Admitted patient ${b.name}`, 'patient', String(r.rows[0].id), null, req.ip);
+
+    // Auto-create patient login account if phone provided
+    if (b.phone && b.phone.trim()) {
+      try {
+        const defaultHash = await bcrypt.hash('password', 10);
+        await pool.query(
+          `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+           VALUES($1, $2, $3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1`,
+          [r.rows[0].id, b.phone.trim(), defaultHash]
+        );
+      } catch(e) { console.warn('Patient account creation:', e.message); }
+    }
+
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1047,6 +1118,13 @@ if (pool) {
     ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS result_status TEXT DEFAULT '';
     ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_url TEXT;
     ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_name TEXT;
+    CREATE TABLE IF NOT EXISTS patient_accounts (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+      phone TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `).then(() => console.log('DB migration: new tables ensured'))
     .catch(e => console.warn('DB migration warning:', e.message));
 }

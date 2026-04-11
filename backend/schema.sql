@@ -310,3 +310,12 @@ CREATE TABLE IF NOT EXISTS network_dms (
   read BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Patient login accounts (phone = username, default password = 'password')
+CREATE TABLE IF NOT EXISTS patient_accounts (
+  id SERIAL PRIMARY KEY,
+  patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+  phone TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
