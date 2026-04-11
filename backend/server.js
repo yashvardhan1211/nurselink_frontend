@@ -51,70 +51,60 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/patient-login', async (req, res) => {
   const { phone, password } = req.body;
   if (!pool) return res.status(503).json({ error: 'No database' });
-  if (!phone?.trim()) return res.status(400).json({ error: 'Phone number required' });
 
   try {
-    // Normalize: strip non-digits, take last 10
-    const cleanPhone = phone.trim().replace(/\D/g, '').slice(-10);
-    if (cleanPhone.length !== 10) return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
+    // Normalize phone — strip non-digits, take last 10
+    const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length !== 10) {
+      return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
+    }
 
-    // 1. Check if account exists
-    let accountRow = null;
-    const accRes = await pool.query(
-      `SELECT pa.*, p.name, p.ehr_id, p.age, p.gender, p.diagnosis, p.status, p.bed, p.admit_time, p.discharge_time, p.discharge_condition
-       FROM patient_accounts pa
-       JOIN patients p ON p.id = pa.patient_id
-       WHERE pa.phone = $1`,
-      [cleanPhone]
+    // Look up patient by phone number directly
+    const ptRes = await pool.query(
+      `SELECT * FROM patients WHERE regexp_replace(phone, '[^0-9]', '', 'g') LIKE $1
+       ORDER BY created_at DESC LIMIT 1`,
+      ['%' + cleanPhone]
     );
-    accountRow = accRes.rows[0];
 
-    // 2. If no account, check if patient exists with this phone — auto-create account
-    if (!accountRow) {
-      const ptRes = await pool.query('SELECT * FROM patients WHERE phone=$1 ORDER BY created_at DESC LIMIT 1', [cleanPhone]);
-      if (!ptRes.rows[0]) {
-        return res.status(401).json({ error: 'Mobile number not registered. Please contact the hospital.' });
-      }
-      // Auto-create account with default password
-      const defaultHash = await bcrypt.hash('password', 10);
-      await pool.query(
-        `INSERT INTO patient_accounts(patient_id, phone, password_hash)
-         VALUES($1, $2, $3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1`,
-        [ptRes.rows[0].id, cleanPhone, defaultHash]
-      );
-      // Re-fetch with join
-      const newAcc = await pool.query(
-        `SELECT pa.*, p.name, p.ehr_id, p.age, p.gender, p.diagnosis, p.status, p.bed, p.admit_time, p.discharge_time, p.discharge_condition
-         FROM patient_accounts pa
-         JOIN patients p ON p.id = pa.patient_id
-         WHERE pa.phone = $1`,
-        [cleanPhone]
-      );
-      accountRow = newAcc.rows[0];
+    if (!ptRes.rows[0]) {
+      return res.status(401).json({ error: 'Mobile number not registered. Please contact the hospital.' });
     }
 
-    if (!accountRow) return res.status(401).json({ error: 'Account setup failed. Contact hospital.' });
+    const patient = ptRes.rows[0];
 
-    // 3. Verify password — guard against malformed hash
-    let ok = false;
+    // Check password — try patient_accounts first, fallback to default 'password'
+    let passwordOk = false;
     try {
-      ok = await bcrypt.compare(password || '', accountRow.password_hash || '');
-    } catch(hashErr) {
-      console.error('[patient-login] bcrypt error:', hashErr.message, 'hash:', accountRow.password_hash?.substring(0,10));
-      // Hash is malformed — reset to default and ask patient to use default password
-      const newHash = await bcrypt.hash('password', 10);
-      await pool.query('UPDATE patient_accounts SET password_hash=$1 WHERE phone=$2', [newHash, cleanPhone]);
-      ok = (password === 'password');
+      const accRes = await pool.query('SELECT password_hash FROM patient_accounts WHERE phone=$1', [cleanPhone]);
+      if (accRes.rows[0]?.password_hash) {
+        passwordOk = await bcrypt.compare(password || '', accRes.rows[0].password_hash);
+      } else {
+        // No account yet — accept default password and create account
+        passwordOk = (password === 'password');
+        if (passwordOk) {
+          const hash = await bcrypt.hash('password', 10);
+          await pool.query(
+            `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+             VALUES($1,$2,$3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1, password_hash=$3`,
+            [patient.id, cleanPhone, hash]
+          ).catch(() => {});
+        }
+      }
+    } catch(e) {
+      // patient_accounts table may not exist — accept default password
+      passwordOk = (password === 'password');
     }
-    if (!ok) return res.status(401).json({ error: 'Incorrect password. Default password is: password' });
 
-    // 4. Issue JWT
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Incorrect password. Default password is: password' });
+    }
+
     const token = jwt.sign(
-      { id: accountRow.patient_id, role: 'Patient', name: accountRow.name, phone: cleanPhone, ehrId: accountRow.ehr_id },
+      { id: patient.id, role: 'Patient', name: patient.name, phone: cleanPhone, ehrId: patient.ehr_id },
       JWT_SECRET, { expiresIn: '7d' }
     );
-    console.log(`[patient-login] ${accountRow.name} (${cleanPhone}) logged in`);
-    res.json({ token, patientId: accountRow.patient_id, name: accountRow.name, ehrId: accountRow.ehr_id });
+    console.log(`[patient-login] ${patient.name} (${cleanPhone}) logged in`);
+    res.json({ token, patientId: patient.id, name: patient.name, ehrId: patient.ehr_id });
   } catch (e) {
     console.error('[patient-login] error:', e.message);
     res.status(500).json({ error: e.message });
