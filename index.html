@@ -9950,19 +9950,16 @@ function switchLoginTab(tab) {
   document.getElementById('tab-hospital').style.color = isPatient ? 'var(--text-muted)' : 'white';
   document.getElementById('tab-patient').style.background = isPatient ? 'var(--teal)' : 'white';
   document.getElementById('tab-patient').style.color = isPatient ? 'white' : 'var(--text-muted)';
-  // Clear any stale errors when switching tabs
-  const errEl = document.getElementById('patient-login-error');
-  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 }
 
 async function patientLogin() {
   const rawPhone = document.getElementById('patient-phone').value.trim();
-  // Strip everything except digits, take last 10
   const phone = rawPhone.replace(/\D/g, '').slice(-10);
   const password = document.getElementById('patient-password').value;
   const btn = document.getElementById('patient-login-btn');
   const errEl = document.getElementById('patient-login-error');
   errEl.style.display = 'none';
+  errEl.textContent = '';
 
   if (!phone || phone.length !== 10) {
     errEl.textContent = 'Please enter a valid 10-digit mobile number.';
@@ -9973,13 +9970,17 @@ async function patientLogin() {
   btn.textContent = 'Signing in...'; btn.disabled = true;
 
   try {
-    const res = await fetch(API_BASE + '/auth/patient-login', {
+    const res = await fetch('https://nurselink-backend-8pr3.onrender.com/api/auth/patient-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, password })
+      body: JSON.stringify({ phone, password: password || 'password' })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed');
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Login failed. Please try again.';
+      errEl.style.display = 'block';
+      return;
+    }
 
     // Store patient token and identity
     API_TOKEN = data.token;
@@ -9997,8 +9998,9 @@ async function patientLogin() {
     await loadPatientPortalData(data.patientId);
     renderAll();
   } catch(e) {
-    errEl.textContent = e.message || 'Could not connect to server.';
+    errEl.textContent = 'Connection error. Please try again.';
     errEl.style.display = 'block';
+    console.error('patientLogin error:', e);
   } finally {
     btn.textContent = 'Enter Patient Portal'; btn.disabled = false;
   }

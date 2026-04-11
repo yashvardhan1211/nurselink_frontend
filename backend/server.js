@@ -53,45 +53,60 @@ app.post('/api/auth/patient-login', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No database' });
 
   try {
+    // Normalize phone — strip non-digits, take last 10
     const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
     if (cleanPhone.length !== 10) {
       return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
     }
 
-    // Fetch all patients and find matching phone in JS (avoids SQL regex issues)
-    const allPts = await pool.query("SELECT * FROM patients WHERE phone IS NOT NULL AND phone != ''");
-    const patient = allPts.rows.find(p => {
-      const stored = (p.phone || '').replace(/\D/g, '').slice(-10);
-      return stored === cleanPhone;
-    });
+    // Look up patient by phone number directly
+    const ptRes = await pool.query(
+      `SELECT * FROM patients WHERE regexp_replace(phone, '[^0-9]', '', 'g') LIKE $1
+       ORDER BY created_at DESC LIMIT 1`,
+      ['%' + cleanPhone]
+    );
 
-    if (!patient) {
+    if (!ptRes.rows[0]) {
       return res.status(401).json({ error: 'Mobile number not registered. Please contact the hospital.' });
     }
 
-    // Accept default password 'password' — no bcrypt needed for MVP
-    if ((password || '') !== 'password') {
-      // Try bcrypt if patient_accounts exists
-      let matched = false;
-      try {
-        const accRes = await pool.query('SELECT password_hash FROM patient_accounts WHERE phone=$1', [cleanPhone]);
-        if (accRes.rows[0]?.password_hash) {
-          matched = await bcrypt.compare(password || '', accRes.rows[0].password_hash);
+    const patient = ptRes.rows[0];
+
+    // Check password — try patient_accounts first, fallback to default 'password'
+    let passwordOk = false;
+    try {
+      const accRes = await pool.query('SELECT password_hash FROM patient_accounts WHERE phone=$1', [cleanPhone]);
+      if (accRes.rows[0]?.password_hash) {
+        passwordOk = await bcrypt.compare(password || '', accRes.rows[0].password_hash);
+      } else {
+        // No account yet — accept default password and create account
+        passwordOk = (password === 'password');
+        if (passwordOk) {
+          const hash = await bcrypt.hash('password', 10);
+          await pool.query(
+            `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+             VALUES($1,$2,$3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1, password_hash=$3`,
+            [patient.id, cleanPhone, hash]
+          ).catch(() => {});
         }
-      } catch(e) { /* table may not exist */ }
-      if (!matched) {
-        return res.status(401).json({ error: 'Incorrect password. Default password is: password' });
       }
+    } catch(e) {
+      // patient_accounts table may not exist — accept default password
+      passwordOk = (password === 'password');
+    }
+
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Incorrect password. Default password is: password' });
     }
 
     const token = jwt.sign(
       { id: patient.id, role: 'Patient', name: patient.name, phone: cleanPhone, ehrId: patient.ehr_id },
       JWT_SECRET, { expiresIn: '7d' }
     );
-    console.log(`[patient-login] OK: ${patient.name} (${cleanPhone})`);
+    console.log(`[patient-login] ${patient.name} (${cleanPhone}) logged in`);
     res.json({ token, patientId: patient.id, name: patient.name, ehrId: patient.ehr_id });
   } catch (e) {
-    console.error('[patient-login]', e.message);
+    console.error('[patient-login] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
