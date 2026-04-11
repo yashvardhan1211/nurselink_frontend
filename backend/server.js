@@ -51,22 +51,86 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/patient-login', async (req, res) => {
   const { phone, password } = req.body;
   if (!pool) return res.status(503).json({ error: 'No database' });
+  if (!phone?.trim()) return res.status(400).json({ error: 'Phone number required' });
+
   try {
-    const r = await pool.query(
+    const cleanPhone = phone.trim();
+
+    // 1. Check if account exists
+    let accountRow = null;
+    const accRes = await pool.query(
       `SELECT pa.*, p.name, p.ehr_id, p.age, p.gender, p.diagnosis, p.status, p.bed, p.admit_time, p.discharge_time, p.discharge_condition
        FROM patient_accounts pa
        JOIN patients p ON p.id = pa.patient_id
        WHERE pa.phone = $1`,
-      [phone?.trim()]
+      [cleanPhone]
     );
-    if (!r.rows[0]) return res.status(401).json({ error: 'Phone number not registered' });
-    const ok = await bcrypt.compare(password, r.rows[0].password_hash);
-    if (!ok) return res.status(401).json({ error: 'Incorrect password' });
+    accountRow = accRes.rows[0];
+
+    // 2. If no account, check if patient exists with this phone — auto-create account
+    if (!accountRow) {
+      const ptRes = await pool.query('SELECT * FROM patients WHERE phone=$1 ORDER BY created_at DESC LIMIT 1', [cleanPhone]);
+      if (!ptRes.rows[0]) {
+        return res.status(401).json({ error: 'Mobile number not registered. Please contact the hospital.' });
+      }
+      // Auto-create account with default password
+      const defaultHash = await bcrypt.hash('password', 10);
+      await pool.query(
+        `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+         VALUES($1, $2, $3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1`,
+        [ptRes.rows[0].id, cleanPhone, defaultHash]
+      );
+      // Re-fetch with join
+      const newAcc = await pool.query(
+        `SELECT pa.*, p.name, p.ehr_id, p.age, p.gender, p.diagnosis, p.status, p.bed, p.admit_time, p.discharge_time, p.discharge_condition
+         FROM patient_accounts pa
+         JOIN patients p ON p.id = pa.patient_id
+         WHERE pa.phone = $1`,
+        [cleanPhone]
+      );
+      accountRow = newAcc.rows[0];
+    }
+
+    if (!accountRow) return res.status(401).json({ error: 'Account setup failed. Contact hospital.' });
+
+    // 3. Verify password
+    const ok = await bcrypt.compare(password, accountRow.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Incorrect password. Default password is: password' });
+
+    // 4. Issue JWT
     const token = jwt.sign(
-      { id: r.rows[0].patient_id, role: 'Patient', name: r.rows[0].name, phone: r.rows[0].phone, ehrId: r.rows[0].ehr_id },
+      { id: accountRow.patient_id, role: 'Patient', name: accountRow.name, phone: cleanPhone, ehrId: accountRow.ehr_id },
       JWT_SECRET, { expiresIn: '7d' }
     );
-    res.json({ token, patientId: r.rows[0].patient_id, name: r.rows[0].name, ehrId: r.rows[0].ehr_id });
+    console.log(`[patient-login] ${accountRow.name} (${cleanPhone}) logged in`);
+    res.json({ token, patientId: accountRow.patient_id, name: accountRow.name, ehrId: accountRow.ehr_id });
+  } catch (e) {
+    console.error('[patient-login] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sync: create patient_accounts for ALL existing patients who have a phone number
+// Called by admin to onboard existing patients
+app.post('/api/auth/sync-patient-accounts', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No database' });
+  try {
+    const patients = await pool.query("SELECT id, phone FROM patients WHERE phone IS NOT NULL AND phone != '' AND phone != 'null'");
+    const defaultHash = await bcrypt.hash('password', 10);
+    let created = 0, skipped = 0;
+    for (const p of patients.rows) {
+      try {
+        const result = await pool.query(
+          `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+           VALUES($1, $2, $3) ON CONFLICT(phone) DO NOTHING`,
+          [p.id, p.phone.trim(), defaultHash]
+        );
+        if (result.rowCount > 0) created++;
+        else skipped++;
+      } catch(e) { skipped++; }
+    }
+    console.log(`[sync-patient-accounts] created=${created} skipped=${skipped}`);
+    res.json({ ok: true, created, skipped, total: patients.rows.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1127,6 +1191,27 @@ if (pool) {
     );
   `).then(() => console.log('DB migration: new tables ensured'))
     .catch(e => console.warn('DB migration warning:', e.message));
+}
+
+// On startup: auto-create patient accounts for all existing patients with phone numbers
+if (pool) {
+  pool.query("SELECT id, phone FROM patients WHERE phone IS NOT NULL AND phone != '' AND phone != 'null'")
+    .then(async patients => {
+      const defaultHash = await bcrypt.hash('password', 10);
+      let created = 0;
+      for (const p of patients.rows) {
+        try {
+          const r = await pool.query(
+            `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+             VALUES($1, $2, $3) ON CONFLICT(phone) DO NOTHING`,
+            [p.id, p.phone.trim(), defaultHash]
+          );
+          if (r.rowCount > 0) created++;
+        } catch(e) {}
+      }
+      if (created > 0) console.log(`[startup] Created ${created} patient accounts`);
+    })
+    .catch(e => console.warn('[startup] patient accounts sync:', e.message));
 }
 
 server.listen(PORT, () => console.log(`Vyasa backend running on port ${PORT}`));

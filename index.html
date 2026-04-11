@@ -6194,7 +6194,7 @@ function renderStaffPage() {
   main.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div><div class="section-title">Admin Panel</div></div>
-      ${activeTab==='staff'?'<button class="btn btn-primary" onclick="showAddStaffModal()">➕ Add Staff</button>':''}
+      ${activeTab==='staff'?'<div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="showAddStaffModal()">➕ Add Staff</button><button class="btn btn-outline btn-sm" onclick="syncPatientAccounts()" title="Create login accounts for all patients with phone numbers">🔄 Sync Patient Logins</button></div>':''}
       ${activeTab==='beds'?'<button class="btn btn-primary" onclick="showAddBedModal()">➕ Add Bed</button>':''}
       ${activeTab==='insurance'?'<button class="btn btn-primary" onclick="showAddInsuranceModal()">➕ Add Insurer</button>':''}
     </div>
@@ -6631,6 +6631,16 @@ async function deleteStaff(staffId, staffName) {
   save();
   S._adminTab = 'staff';
   renderStaffPage();
+}
+
+async function syncPatientAccounts() {
+  if (!IS_LIVE) { showToast('Only available in live mode', 'warn'); return; }
+  showToast('Syncing patient login accounts...', 'info');
+  try {
+    const res = await apiPost('/auth/sync-patient-accounts', {});
+    if (res) showToast(`✓ ${res.created} new accounts created, ${res.skipped} already existed (${res.total} total patients)`, 'info');
+    else showToast('Sync failed', 'error');
+  } catch(e) { showToast('Sync error: ' + e.message, 'error'); }
 }
 
 function showAddStaffModal() {
