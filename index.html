@@ -864,13 +864,18 @@ async function tryLoadLiveData() {
       time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : '',
       acked: !!a.acknowledged_by
     }));
-    // Always replace with live data — also clears demo alerts (A1-A4) that have fake patient IDs
-    S.alerts = liveAlerts;
+    if (liveAlerts.length > 0) {
+      // Replace with server data — server is source of truth
+      S.alerts = liveAlerts;
+    } else {
+      // Server returned empty — keep any locally-generated alerts but strip demo ones
+      S.alerts = S.alerts.filter(a => !['A1','A2','A3','A4'].includes(String(a.id)));
+    }
     // Clear demo notifications (hardcoded INIT ones)
     S.notifications = S.notifications.filter(n => !['N1','N2','N3','N4'].includes(n.id));
   } else {
-    // Server returned nothing — still clear demo alerts so stale data doesn't show
-    S.alerts = S.alerts.filter(a => !['A1','A2','A3','A4'].includes(a.id));
+    // Server error — keep local alerts but strip demo ones
+    S.alerts = S.alerts.filter(a => !['A1','A2','A3','A4'].includes(String(a.id)));
     S.notifications = S.notifications.filter(n => !['N1','N2','N3','N4'].includes(n.id));
   }
 
@@ -955,6 +960,26 @@ function connectSocket() {
   script.src = 'https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js';
   script.onload = () => {
     socket = io('https://nurselink-backend-8pr3.onrender.com');
+
+    // On socket connect/reconnect — re-fetch alerts from server to sync any missed ones
+    socket.on('connect', () => {
+      apiGet('/alerts').then(alertsRes => {
+        if (alertsRes && Array.isArray(alertsRes) && alertsRes.length > 0) {
+          S.alerts = alertsRes.map(a => ({
+            id: String(a.id),
+            patientId: String(a.patient_id || a.patientId),
+            patientName: a.patient_name || '',
+            type: a.type || 'info',
+            title: a.title || a.alert_type || 'Alert',
+            msg: a.message || a.msg || '',
+            time: a.created_at ? new Date(a.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ' ' + new Date(a.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit'}) : '',
+            acked: !!a.acknowledged_by
+          }));
+          renderAlertFeed();
+          try { localStorage.setItem('NL_STATE_V3', JSON.stringify(S)); } catch(e) {}
+        }
+      }).catch(() => {});
+    });
     socket.on('vitals:new', v => {
       const pid = String(v.patient_id);
       if (!S.vitals[pid]) S.vitals[pid] = [];

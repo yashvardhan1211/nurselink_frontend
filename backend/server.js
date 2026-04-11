@@ -523,8 +523,12 @@ app.get('/api/alerts', auth, async (req, res) => {
        LEFT JOIN patients p ON p.id = a.patient_id
        ORDER BY a.created_at DESC LIMIT 100`
     );
+    console.log(`[alerts] GET returned ${r.rows.length} rows`);
     res.json(r.rows);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[alerts] GET error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.patch('/api/alerts/:id/acknowledge', auth, async (req, res) => {
