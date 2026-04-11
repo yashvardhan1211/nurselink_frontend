@@ -4796,6 +4796,16 @@ async function submitAdminTriage() {
   const docId = document.getElementById('at-doc')?.value;
   if (!name || !age) { alert('Name and Age are required.'); return; }
 
+  // Read triage vitals
+  const sbp  = parseInt(document.getElementById('at-sbp')?.value) || 0;
+  const dbp  = parseInt(document.getElementById('at-dbp')?.value) || 0;
+  const hr   = parseInt(document.getElementById('at-hr')?.value) || 0;
+  const spo2 = parseInt(document.getElementById('at-spo2')?.value) || 0;
+  const tempF = parseFloat(document.getElementById('at-temp')?.value) || 0;
+  const tempC = tempF > 0 ? parseFloat(((tempF - 32) * 5/9).toFixed(1)) : 37.0;
+  const glucose = parseInt(document.getElementById('at-glucose')?.value) || 100;
+  const hasVitals = sbp > 0 || hr > 0 || spo2 > 0;
+
   const pid = 'P' + Date.now();
   const ehrId = 'EHR-' + Math.floor(10000 + Math.random()*90000);
   const patient = {
@@ -4808,12 +4818,20 @@ async function submitAdminTriage() {
     admitTime: now(), status: 'OPD',
     chiefComplaint: cc || '',
     allergies: 'None Known', bloodGroup: '',
-    triageResult: null, triageVitals: null,
+    triageResult: null, triageVitals: hasVitals ? { sbp, dbp, hr, spo2, temp: tempC, glucose } : null,
   };
 
   S.patients.unshift(patient);
-  S.vitals[pid] = []; S.prescriptions[pid] = []; S.labOrders[pid] = [];
+  S.vitals[pid] = [];
+  S.prescriptions[pid] = []; S.labOrders[pid] = [];
   S.consultNotes[pid] = []; S.nursingNotes[pid] = []; S.chat[pid] = [];
+
+  // Save triage vitals as first vitals entry
+  if (hasVitals) {
+    const vitalEntry = { id:'V'+Date.now(), time:ts(), bpSys:sbp, bpDia:dbp, pulse:hr, spo2, temp:tempC, rr:16, gcs:15, uo:40, glucose, drain:0, pain:0, notes:'Triage vitals at registration', nurse:getCurrentStaffName() };
+    S.vitals[pid].push(vitalEntry);
+  }
+
   if (!S.opdQueue) S.opdQueue = [];
   S.opdQueue.unshift({ pid, name, uhid: ehrId, cc: cc||'', time: ts(), status: 'Waiting' });
 
@@ -4837,10 +4855,18 @@ async function submitAdminTriage() {
         const q = S.opdQueue.find(x => x.pid === pid);
         if (q) q.pid = dbId;
       }
-      showToast(`${name} registered ✓`, 'info');
+      // Save vitals to backend
+      if (hasVitals) {
+        await apiPost('/vitals/' + (res.id || pid), {
+          bp_sys: sbp, bp_dia: dbp, pulse: hr, spo2, temperature: tempC,
+          resp_rate: 16, gcs: 15, urine_output: 40, blood_glucose: glucose,
+          drain_output: 0, pain_score: 0, notes: 'Triage vitals at registration'
+        }).catch(() => {});
+      }
+      showToast(`${name} registered ✓${hasVitals ? ' with vitals' : ''}`, 'info');
     }
   } else {
-    showToast(`${name} registered`);
+    showToast(`${name} registered${hasVitals ? ' with vitals' : ''}`);
   }
 
   save();
@@ -5438,6 +5464,19 @@ async function submitAdmit() {
   S.nursingNotes[pid] = [];
   S.chat[pid] = [];
 
+  // Save triage vitals entered during registration
+  const tSbp  = parseInt(document.getElementById('at-sbp')?.value) || 0;
+  const tDbp  = parseInt(document.getElementById('at-dbp')?.value) || 0;
+  const tHr   = parseInt(document.getElementById('at-hr')?.value) || 0;
+  const tSpo2 = parseInt(document.getElementById('at-spo2')?.value) || 0;
+  const tTempF = parseFloat(document.getElementById('at-temp')?.value) || 0;
+  const tTempC = tTempF > 0 ? parseFloat(((tTempF - 32) * 5/9).toFixed(1)) : 37.0;
+  const tGlucose = parseInt(document.getElementById('at-glucose')?.value) || 100;
+  const hasTriageVitals = tSbp > 0 || tHr > 0 || tSpo2 > 0;
+  if (hasTriageVitals) {
+    S.vitals[pid].push({ id:'V'+Date.now(), time:ts(), bpSys:tSbp, bpDia:tDbp, pulse:tHr, spo2:tSpo2, temp:tTempC, rr:16, gcs:15, uo:40, glucose:tGlucose, drain:0, pain:0, notes:'Triage vitals at registration', nurse:getCurrentStaffName() });
+  }
+
   if (rx) {
     S.prescriptions[pid].push({ id:'RX'+Date.now(), drug:rx, dose:'', route:'', freq:'', duration:'', instructions:'See free text', prescribedBy:getCurrentStaffName(), time:now(), status:'active' });
     S.notifications.unshift({ id:'N'+Date.now(), role:'Pharmacist', title: isIPD ? 'New Admission Rx' : 'New OPD Rx', body:`${name} — prescription added`, time:ts(), read:false });
@@ -5512,6 +5551,19 @@ async function submitAdmit() {
         }
         // Update activePatientId to new dbId
         pid = dbId;
+      }
+      // Save triage vitals to backend if entered
+      if (hasTriageVitals) {
+        apiPost('/vitals/' + pid, {
+          bp_sys: tSbp, bp_dia: tDbp, pulse: tHr, spo2: tSpo2,
+          temperature: tTempC, resp_rate: 16, gcs: 15,
+          urine_output: 40, blood_glucose: tGlucose,
+          drain_output: 0, pain_score: 0,
+          notes: 'Triage vitals at registration'
+        }).catch(() => {});
+        showToast(`${name} ${isIPD?'admitted':'registered'} ✓ with triage vitals`, 'info');
+      } else {
+        showToast(`${name} ${isIPD?'admitted':'registered'} ✓`, 'info');
       }
     } else {
       showToast(`Saved locally — server sync failed`, 'warn');
