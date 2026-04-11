@@ -95,8 +95,17 @@ app.post('/api/auth/patient-login', async (req, res) => {
 
     if (!accountRow) return res.status(401).json({ error: 'Account setup failed. Contact hospital.' });
 
-    // 3. Verify password
-    const ok = await bcrypt.compare(password, accountRow.password_hash);
+    // 3. Verify password — guard against malformed hash
+    let ok = false;
+    try {
+      ok = await bcrypt.compare(password || '', accountRow.password_hash || '');
+    } catch(hashErr) {
+      console.error('[patient-login] bcrypt error:', hashErr.message, 'hash:', accountRow.password_hash?.substring(0,10));
+      // Hash is malformed — reset to default and ask patient to use default password
+      const newHash = await bcrypt.hash('password', 10);
+      await pool.query('UPDATE patient_accounts SET password_hash=$1 WHERE phone=$2', [newHash, cleanPhone]);
+      ok = (password === 'password');
+    }
     if (!ok) return res.status(401).json({ error: 'Incorrect password. Default password is: password' });
 
     // 4. Issue JWT
@@ -134,6 +143,23 @@ app.post('/api/auth/sync-patient-accounts', auth, async (req, res) => {
     console.log(`[sync-patient-accounts] created=${created} skipped=${skipped}`);
     res.json({ ok: true, created, skipped, total: patients.rows.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin: reset patient password to default
+app.post('/api/auth/reset-patient-password', auth, async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'No database' });
+  try {
+    const { phone } = req.body;
+    const cleanPhone = phone?.trim().replace(/\D/g, '').slice(-10);
+    if (!cleanPhone || cleanPhone.length !== 10) return res.status(400).json({ error: 'Invalid phone' });
+    const newHash = await bcrypt.hash('password', 10);
+    const r = await pool.query(
+      'UPDATE patient_accounts SET password_hash=$1 WHERE phone=$2 RETURNING id',
+      [newHash, cleanPhone]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'No account found for this phone' });
+    res.json({ ok: true, message: 'Password reset to: password' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // Change patient password
