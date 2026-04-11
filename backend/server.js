@@ -296,11 +296,17 @@ app.post('/api/vitals/:pid', auth, async (req, res) => {
     if (alerts.length > 0) {
       const savedAlerts = [];
       for (const a of alerts) {
-        const ar = await pool.query(
-          'INSERT INTO alerts(patient_id,type,title,message) VALUES($1,$2,$3,$4) RETURNING *',
-          [pid, a.type, a.title, a.message]
-        );
-        savedAlerts.push({ ...ar.rows[0], patient_name: patientName });
+        try {
+          const ar = await pool.query(
+            'INSERT INTO alerts(patient_id,type,title,message) VALUES($1,$2,$3,$4) RETURNING *',
+            [pid, a.type, a.title, a.message]
+          );
+          savedAlerts.push({ ...ar.rows[0], patient_name: patientName });
+        } catch(alertErr) {
+          console.error('Alert INSERT failed:', alertErr.message);
+          // Still emit with a temp id so real-time works even if DB insert fails
+          savedAlerts.push({ id: Date.now(), patient_id: pid, type: a.type, title: a.title, message: a.message, patient_name: patientName, created_at: new Date().toISOString() });
+        }
       }
       io.emit('alert:new', { patientId: String(pid), patientName, alerts: savedAlerts });
     }
@@ -970,6 +976,73 @@ if (pool) {
       receiver_id INTEGER REFERENCES staff(id), text TEXT NOT NULL,
       read BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS alerts (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER REFERENCES patients(id),
+      type TEXT DEFAULT 'info',
+      title TEXT,
+      message TEXT,
+      acknowledged_by INTEGER REFERENCES staff(id),
+      acknowledged_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS consult_notes (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER REFERENCES patients(id),
+      subjective TEXT DEFAULT '',
+      objective TEXT DEFAULT '',
+      assessment TEXT DEFAULT '',
+      plan TEXT DEFAULT '',
+      created_by_id INTEGER REFERENCES staff(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS mar (
+      id SERIAL PRIMARY KEY,
+      prescription_id INTEGER REFERENCES prescriptions(id),
+      patient_id INTEGER REFERENCES patients(id),
+      status TEXT,
+      given_by_id INTEGER REFERENCES staff(id),
+      given_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER REFERENCES patients(id),
+      sender_id INTEGER REFERENCES staff(id),
+      message TEXT NOT NULL,
+      sent_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS network_posts (
+      id SERIAL PRIMARY KEY,
+      author_id INTEGER REFERENCES staff(id),
+      text TEXT NOT NULL,
+      tag TEXT DEFAULT 'Discussion',
+      case_label TEXT,
+      case_history JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS network_post_likes (
+      post_id INTEGER REFERENCES network_posts(id) ON DELETE CASCADE,
+      staff_id INTEGER REFERENCES staff(id),
+      PRIMARY KEY(post_id, staff_id)
+    );
+    CREATE TABLE IF NOT EXISTS network_post_replies (
+      id SERIAL PRIMARY KEY,
+      post_id INTEGER REFERENCES network_posts(id) ON DELETE CASCADE,
+      author_id INTEGER REFERENCES staff(id),
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS opd_queue (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER REFERENCES patients(id),
+      token_no INTEGER,
+      status TEXT DEFAULT 'Waiting',
+      doctor_id INTEGER REFERENCES staff(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS result_status TEXT DEFAULT '';
+    ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_url TEXT;
+    ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS report_name TEXT;
   `).then(() => console.log('DB migration: new tables ensured'))
     .catch(e => console.warn('DB migration warning:', e.message));
 }
