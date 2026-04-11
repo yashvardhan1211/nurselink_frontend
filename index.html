@@ -586,7 +586,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
         <label class="form-label">Mobile Number</label>
 
-        <input class="form-control" id="patient-phone" type="text" inputmode="numeric" placeholder="10-digit mobile number" onkeydown="if(event.key==='Enter')patientLogin()">
+        <input class="form-control" id="patient-phone" type="text" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" placeholder="10-digit mobile number" onkeydown="if(event.key==='Enter')patientLogin()" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)">
 
       </div>
 
@@ -9953,13 +9953,19 @@ function switchLoginTab(tab) {
 }
 
 async function patientLogin() {
-  const phone = document.getElementById('patient-phone').value.trim();
+  const rawPhone = document.getElementById('patient-phone').value.trim();
+  // Strip everything except digits, take last 10
+  const phone = rawPhone.replace(/\D/g, '').slice(-10);
   const password = document.getElementById('patient-password').value;
   const btn = document.getElementById('patient-login-btn');
   const errEl = document.getElementById('patient-login-error');
   errEl.style.display = 'none';
 
-  if (!phone) { errEl.textContent = 'Please enter your mobile number.'; errEl.style.display = 'block'; return; }
+  if (!phone || phone.length !== 10) {
+    errEl.textContent = 'Please enter a valid 10-digit mobile number.';
+    errEl.style.display = 'block';
+    return;
+  }
 
   btn.textContent = 'Signing in...'; btn.disabled = true;
 

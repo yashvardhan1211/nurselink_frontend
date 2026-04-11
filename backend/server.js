@@ -54,7 +54,9 @@ app.post('/api/auth/patient-login', async (req, res) => {
   if (!phone?.trim()) return res.status(400).json({ error: 'Phone number required' });
 
   try {
-    const cleanPhone = phone.trim();
+    // Normalize: strip non-digits, take last 10
+    const cleanPhone = phone.trim().replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length !== 10) return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
 
     // 1. Check if account exists
     let accountRow = null;
@@ -123,7 +125,7 @@ app.post('/api/auth/sync-patient-accounts', auth, async (req, res) => {
         const result = await pool.query(
           `INSERT INTO patient_accounts(patient_id, phone, password_hash)
            VALUES($1, $2, $3) ON CONFLICT(phone) DO NOTHING`,
-          [p.id, p.phone.trim(), defaultHash]
+          [p.id, p.phone.trim().replace(/\D/g, '').slice(-10), defaultHash]
         );
         if (result.rowCount > 0) created++;
         else skipped++;
@@ -258,12 +260,15 @@ app.post('/api/patients', auth, async (req, res) => {
     // Auto-create patient login account if phone provided
     if (b.phone && b.phone.trim()) {
       try {
-        const defaultHash = await bcrypt.hash('password', 10);
-        await pool.query(
-          `INSERT INTO patient_accounts(patient_id, phone, password_hash)
-           VALUES($1, $2, $3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1`,
-          [r.rows[0].id, b.phone.trim(), defaultHash]
-        );
+        const normalizedPhone = b.phone.trim().replace(/\D/g, '').slice(-10);
+        if (normalizedPhone.length === 10) {
+          const defaultHash = await bcrypt.hash('password', 10);
+          await pool.query(
+            `INSERT INTO patient_accounts(patient_id, phone, password_hash)
+             VALUES($1, $2, $3) ON CONFLICT(phone) DO UPDATE SET patient_id=$1`,
+            [r.rows[0].id, normalizedPhone, defaultHash]
+          );
+        }
       } catch(e) { console.warn('Patient account creation:', e.message); }
     }
 
@@ -1204,7 +1209,7 @@ if (pool) {
           const r = await pool.query(
             `INSERT INTO patient_accounts(patient_id, phone, password_hash)
              VALUES($1, $2, $3) ON CONFLICT(phone) DO NOTHING`,
-            [p.id, p.phone.trim(), defaultHash]
+            [p.id, p.phone.trim().replace(/\D/g, '').slice(-10), defaultHash]
           );
           if (r.rowCount > 0) created++;
         } catch(e) {}
