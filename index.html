@@ -4780,7 +4780,13 @@ function adminTriageUpdate() {
     const badge = document.getElementById('at-badge-' + d.id);
     if (badge) badge.style.display = rec && String(d.id)===String(rec.id) ? 'block' : 'none';
   });
-  if (rec) selectAdminDoc(String(rec.id));
+  if (rec) {
+    selectAdminDoc(String(rec.id));
+    selectAdmitDoctor(String(rec.id)); // also highlight in the new admit form doctor cards
+    const specEl = document.getElementById('admit-doc-specialty');
+    if (specEl) specEl.textContent = result.specialty;
+  }
+  panel.style.display = 'block';
 }
 
 async function submitAdminTriage() {
@@ -5121,6 +5127,28 @@ function renderAdmitForm() {
       <!-- RIGHT: TRIAGE RESULT + DOCTOR + NURSE ASSIGNMENT -->
 
       <div style="position:sticky;top:80px;display:flex;flex-direction:column;gap:12px">
+
+        <!-- AI Triage Score Panel -->
+        <div style="border:2px solid var(--border);border-radius:10px;background:white;overflow:hidden">
+          <div style="background:#1A2332;color:white;padding:10px 14px;font-weight:700;font-size:13px">🧠 AI Triage — Enter Vitals</div>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Systolic BP</div>
+                <input class="form-control" id="at-sbp" type="number" placeholder="120" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()" style="font-size:13px;padding:6px 10px"></div>
+              <div><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Diastolic BP</div>
+                <input class="form-control" id="at-dbp" type="number" placeholder="80" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()" style="font-size:13px;padding:6px 10px"></div>
+              <div><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Heart Rate</div>
+                <input class="form-control" id="at-hr" type="number" placeholder="72" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()" style="font-size:13px;padding:6px 10px"></div>
+              <div><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">SpO2 (%)</div>
+                <input class="form-control" id="at-spo2" type="number" placeholder="98" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()" style="font-size:13px;padding:6px 10px"></div>
+              <div><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Temp (°F)</div>
+                <input class="form-control" id="at-temp" type="number" placeholder="98.6" step="0.1" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()" style="font-size:13px;padding:6px 10px"></div>
+              <div><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:3px">Glucose</div>
+                <input class="form-control" id="at-glucose" type="number" placeholder="100" oninput="adminTriageUpdate()" onchange="adminTriageUpdate()" style="font-size:13px;padding:6px 10px"></div>
+            </div>
+          </div>
+          <div id="at-triage-panel" style="padding:12px;border-top:1px solid #e2e8f0;display:none"></div>
+        </div>
 
         <!-- Doctor Assignment -->
         <div style="border:2px solid var(--border);border-radius:10px;background:white;overflow:hidden">
