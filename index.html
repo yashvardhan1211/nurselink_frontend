@@ -1258,6 +1258,25 @@ async function loadPatientData(pid) {
     }
   }
   if (socket) socket.emit('join:patient', pid);
+
+  // Auto-populate triageVitals from first vitals entry so OPD consult form pre-fills
+  const p = S.patients.find(x => x.id === pid);
+  if (p && !p.triageVitals) {
+    const firstVital = (S.vitals[pid] || [])[0];
+    if (firstVital) {
+      // Convert stored °C back to °F for the OPD form (which uses °F)
+      const tempF = firstVital.temp ? parseFloat(((firstVital.temp * 9/5) + 32).toFixed(1)) : null;
+      p.triageVitals = {
+        sbp: firstVital.bpSys || '',
+        dbp: firstVital.bpDia || '',
+        hr:  firstVital.pulse || '',
+        spo2: firstVital.spo2 || '',
+        temp: tempF || '',
+        glucose: firstVital.glucose || '',
+      };
+    }
+  }
+
   renderAll();
 }
 
@@ -1841,6 +1860,14 @@ function openPatient(id) {
     loadPatientData(id).then(()=>showOPDRxPDF(id));
     return;
   }
+  // Pre-populate triageVitals from first vitals entry (for offline/demo mode)
+  if (p && !p.triageVitals) {
+    const firstVital = (S.vitals[id] || [])[0];
+    if (firstVital) {
+      const tempF = firstVital.temp ? parseFloat(((firstVital.temp * 9/5) + 32).toFixed(1)) : null;
+      p.triageVitals = { sbp: firstVital.bpSys||'', dbp: firstVital.bpDia||'', hr: firstVital.pulse||'', spo2: firstVital.spo2||'', temp: tempF||'', glucose: firstVital.glucose||'' };
+    }
+  }
   S.activePatientId = id;
   if (!S.activeTab[id]) S.activeTab[id] = 'overview';
   closeMobileSidebar();
@@ -1895,7 +1922,12 @@ function renderOPDConsultation(id) {
         renderOPDConsultTab(id,p)}
     </div>
   `;
-  setTimeout(() => {}, 0);
+  // Auto-run triage if vitals are pre-filled from registration
+  setTimeout(() => {
+    if ((tab === 'consult' || tab === 'prescribe' || tab === 'examine') && p.triageVitals) {
+      runOPDTriage();
+    }
+  }, 50);
 }
 
 function renderOPDHistoryTab(id, p) {
